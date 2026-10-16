@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nutrition Helper</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+</style>
+<style>
+/* ===== Shared look: petravanta's apps =====
+   Canonical copy of the tokens, type and components used by Fitness Coach and Skating Mentor (and this hub).
+   Apps currently inline this block between "Shared look" and "end shared look"; update both when it changes.
+   Each app only overrides the --accent values after this block. */
+:root{
+  --bg:#eef2f4; --surface:#ffffff; --sunk:#e3e9ec; --line:#cdd6db; --ink:#14212a; --muted:#566771; --faint:#8a99a2;
+  --lv-new:#9aa8b0; --lv-learn:#c07a00; --lv-dev:#2f6fd0; --lv-conf:#11897a; --lv-solid:#0c5e3e;
+  --lv-learn-bg:#fbefd9; --lv-dev-bg:#e1ebfa; --lv-conf-bg:#d9f1ec; --lv-solid-bg:#d5eadf;
+  --danger:#b3261e; --danger-soft:#fbe3e1;
+  --f-display:"Unbounded","Arial Rounded MT Bold",system-ui,sans-serif;
+  --f-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f161b; --surface:#172129; --sunk:#111a20; --line:#2a3842; --ink:#e4ecf0; --muted:#9fb0ba; --faint:#6b7d88;
+  --lv-new:#64757f; --lv-learn:#e6a33a; --lv-dev:#6ea0f0; --lv-conf:#3cc3ad; --lv-solid:#6fd39a;
+  --lv-learn-bg:#3a2a10; --lv-dev-bg:#182a45; --lv-conf-bg:#0f3530; --lv-solid-bg:#143224;
+  --danger:#ff8a80; --danger-soft:#3d1c1a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f161b; --surface:#172129; --sunk:#111a20; --line:#2a3842; --ink:#e4ecf0; --muted:#9fb0ba; --faint:#6b7d88;
+  --lv-new:#64757f; --lv-learn:#e6a33a; --lv-dev:#6ea0f0; --lv-conf:#3cc3ad; --lv-solid:#6fd39a;
+  --lv-learn-bg:#3a2a10; --lv-dev-bg:#182a45; --lv-conf-bg:#0f3530; --lv-solid-bg:#143224;
+  --danger:#ff8a80; --danger-soft:#3d1c1a; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--surface)}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.topbar{display:flex;align-items:center;gap:16px;padding-block:12px 0;flex-wrap:wrap}
+.brand{font-family:var(--f-display);font-weight:700;font-size:18px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+.brand svg{width:26px;height:26px;flex:none}
+.save-state{margin-left:auto;font-size:12px;color:var(--muted);font-family:var(--f-mono)}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;padding-top:8px;scrollbar-width:none}
+nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px 9px;font-weight:600;color:var(--muted);white-space:nowrap}
+nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+main{padding-block:20px 80px}
+h2{font-family:var(--f-display);font-weight:500;font-size:20px;letter-spacing:-.01em;margin:0;text-wrap:balance}
+h3{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0;font-weight:600}
+p{margin:0}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.stack{display:flex;flex-direction:column;gap:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 14px;font-weight:600;font-size:14px}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:none}
+.btn.danger{color:var(--danger)}
+.btn.sm{padding:4px 10px;font-size:13px}
+.btn.big{padding:12px 22px;font-size:16px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600;color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+select,input[type=text],input[type=number],textarea{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:15px;text-transform:none;letter-spacing:0;font-weight:500;min-width:0}
+textarea{resize:vertical}
+.ctx{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:end}
+@media (max-width:720px){.ctx{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ctx-note{font-size:13px;color:var(--muted);margin-top:10px}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;white-space:nowrap;background:var(--sunk);color:var(--muted)}
+.pill.l1{background:var(--lv-learn-bg);color:var(--lv-learn)}
+.pill.l2{background:var(--lv-dev-bg);color:var(--lv-dev)}
+.pill.l3{background:var(--lv-conf-bg);color:var(--lv-conf)}
+.pill.l4{background:var(--lv-solid-bg);color:var(--lv-solid)}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:720px){.two{grid-template-columns:minmax(0,1fr)}}
+.banner{background:var(--accent-soft);border-radius:var(--r);padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.banner p{flex:1 1 260px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:620px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat b{display:block;font-family:var(--f-mono);font-size:24px;font-weight:500}
+.stat span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.meter{height:8px;border-radius:4px;background:var(--sunk);overflow:hidden}
+.meter i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.scrim{position:fixed;inset:0;background:rgba(10,16,20,.35);z-index:40}
+.drawer{position:fixed;z-index:41;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--surface);border-left:1px solid var(--line);overflow-y:auto;
+  padding:calc(env(safe-area-inset-top,0px) + 18px) max(18px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) 18px;display:flex;flex-direction:column;gap:16px}
+@media (max-width:640px){.drawer{top:auto;left:0;width:100%;max-height:86vh;border-left:0;border-top:1px solid var(--line);border-radius:16px 16px 0 0;padding-left:max(18px,env(safe-area-inset-left,0px))}}
+.drawer .x{position:absolute;top:calc(env(safe-area-inset-top,0px) + 12px);right:max(12px,env(safe-area-inset-right,0px));background:var(--sunk);border:0;border-radius:999px;width:32px;height:32px;font-size:18px;line-height:1}
+@media (max-width:640px){.drawer .x{top:12px}}
+.drawer h2{padding-right:40px}
+.drawer ul,.cues{margin:0;padding-left:18px}
+.checks{display:flex;flex-wrap:wrap;gap:6px}
+.checks label{display:inline-flex;align-items:center;gap:5px;font-size:13px;border:1px solid var(--line);border-radius:6px;padding:3px 8px;background:var(--sunk)}
+.entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:8px 0;border-top:1px solid var(--line)}
+.entry .meta{font-size:12px;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 18px);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;font-weight:600;z-index:60;max-width:calc(100% - 32px)}
+.empty{padding:28px 16px;text-align:center;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.drawer{animation:slide .18s ease-out}@keyframes slide{from{transform:translateX(24px);opacity:.4}}}
+/* ===== end shared look ===== */
+:root{--accent:#c2410c; --accent-ink:#ffffff; --accent-soft:#fde4d6; --ok:#11897a; --over:#b3261e}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--accent:#fb8a4c; --accent-ink:#1f0c03; --accent-soft:#3d2014; --ok:#3cc3ad; --over:#ff8a80}}
+:root[data-theme="dark"]{--accent:#fb8a4c; --accent-ink:#1f0c03; --accent-soft:#3d2014; --ok:#3cc3ad; --over:#ff8a80}
+/* Layout: sticky header with tabs over one working column. Today shows the day's budget, food entries and weigh-in. */
+input[type=date]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;font-weight:500;min-width:0}
+.daybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.daybar h2{margin-right:auto}
+.nav-btn{width:34px;height:34px;padding:0;display:inline-grid;place-items:center;font-size:18px;line-height:1}
+.budget{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+@media (max-width:860px){.budget{grid-template-columns:repeat(2,minmax(0,1fr))}.budget .m:first-child{grid-column:1/-1}}
+.m{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.m .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.m .big{font-family:var(--f-mono);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+.m .big small{font-size:13px;color:var(--muted);font-weight:400}
+.m .rem{font-size:13px;color:var(--muted)}
+.m .rem b{color:var(--ink);font-family:var(--f-mono);font-weight:500}
+.m.over .rem b{color:var(--over)}
+.m.over .meter i{background:var(--over)}
+.m.done .rem b{color:var(--ok)}
+.m.done .meter i{background:var(--ok)}
+.form{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end}
+.form .wide{grid-column:span 2}
+@media (max-width:720px){.form{grid-template-columns:repeat(2,minmax(0,1fr))}.form .wide{grid-column:1/-1}}
+.form input{width:100%}
+.entries{display:flex;flex-direction:column}
+.ent{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:2px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.ent:first-child{border-top:0}
+.ent .nm{font-weight:600;overflow-wrap:anywhere}
+.ent .meta{font-size:12px;color:var(--muted);font-family:var(--f-mono)}
+.ent .kc{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.x-btn{background:none;border:0;color:var(--faint);font-size:18px;line-height:1;padding:4px 6px;border-radius:6px}
+.x-btn:hover{color:var(--danger);background:var(--sunk)}
+.wrow{display:grid;grid-template-columns:110px minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.wrow:first-child{border-top:0}
+.wrow .d{font-size:13px;color:var(--muted)}
+.wrow .v{font-family:var(--f-mono)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg button{border:0;background:var(--surface);padding:5px 12px;font-size:13px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.brand svg .leaf{fill:var(--surface)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="topbar">
+      <a data-hub-link href="https://petravanta.github.io/general/">All apps</a>
+      <div class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="17" r="13" fill="var(--accent)"/><path class="leaf" d="M16 10c3.5-4 8-3.5 8-3.5s.5 4.5-3.5 8c-2 1.7-4.5 1.5-4.5 1.5S15.6 12 16 10z"/><circle cx="16" cy="19" r="4" fill="var(--surface)"/></svg>
+        Nutrition Helper
+      </div>
+      <span class="save-state" id="saveState">Loading…</span>
+      <button class="btn sm" id="driveResume" data-act="driveSync" hidden>Resume Drive sync</button>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="today" aria-selected="true">Today</button>
+      <button role="tab" data-tab="weight" aria-selected="false">Weight</button>
+      <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap" id="main"></main>
+<div id="toastHost"></div>
+
+<script>
+/* ---------------- Metrics ---------------- */
+// Budgets: calories, fat and carbs are targets; protein is a floor to reach; sodium is a ceiling to stay under.
+const METRICS=[
+  {k:'kcal',n:'Calories',u:'kcal',kind:'target'},
+  {k:'protein',n:'Protein',u:'g',kind:'floor'},
+  {k:'fat',n:'Fat',u:'g',kind:'target'},
+  {k:'carbs',n:'Carbs',u:'g',kind:'target'},
+  {k:'sodium',n:'Sodium',u:'mg',kind:'ceiling'}];
+const DEFAULT_TARGETS={kcal:2200,protein:160,fat:70,carbs:230,sodium:2300};
+const KG_PER_LB=0.45359237;
+
+/* ---------------- State & storage ---------------- */
+/* Google Drive sync: the shared OAuth client for petravanta.github.io (see README). Leave empty to turn Drive off. */
+const GOOGLE_CLIENT_ID='326863468616-4hf2conk0ks0s4qdva9tphphdo7ht7eh.apps.googleusercontent.com';
+const LS_KEY='nutritionHelper.v1';
+const uid6=()=>Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);
+const nowIso=()=>new Date().toISOString();
+// Settings change as a whole (newest wins on merge); entries, weigh-ins and foods are records merged by id.
+function defaultSettings(){return{
+  weightUnit:'lb',
+  targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
+  updatedAt:''
+};}
+function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],deleted:[]}}
+let state=emptyState();
+
+function lsGet(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
+function normalize(j){
+  const s=emptyState();
+  if(!j||typeof j!=='object') return s;
+  s.settings=Object.assign(defaultSettings(),j.settings||{});
+  if(!Array.isArray(s.settings.targets)||!s.settings.targets.length) s.settings.targets=defaultSettings().targets;
+  for(const k of ['entries','weighins','foods','deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
+  return s;
+}
+const local=lsGet(LS_KEY); if(local) state=normalize(local);
+function saveLocal(){if(!lsSet(LS_KEY,state)) toast('This browser is out of space. Export a backup.'); driveSoon()}
+function touchSettings(){state.settings.updatedAt=nowIso(); saveLocal()}
+function putRecord(list,rec){rec.u=nowIso(); const a=state[list], i=a.findIndex(x=>x.id===rec.id); i>=0?a[i]=rec:a.push(rec); saveLocal()}
+function dropRecord(list,id){state[list]=state[list].filter(x=>x.id!==id); state.deleted.push(id); saveLocal()}
+function setSaveState(t){document.getElementById('saveState').textContent=t}
+
+/* ---------------- Dates & units ---------------- */
+const pad=n=>String(n).padStart(2,'0');
+const dkey=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseDay=k=>{const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d)};
+const todayKey=()=>dkey(new Date());
+const addDays=(k,n)=>{const d=parseDay(k); d.setDate(d.getDate()+n); return dkey(d)};
+function dayLabel(k){
+  const t=todayKey();
+  if(k===t) return 'Today'; if(k===addDays(t,-1)) return 'Yesterday'; if(k===addDays(t,1)) return 'Tomorrow';
+  return parseDay(k).toLocaleDateString([], {weekday:'short',month:'short',day:'numeric',year:k.slice(0,4)===t.slice(0,4)?undefined:'numeric'});
+}
+const wUnit=()=>state.settings.weightUnit;
+const toDisp=kg=>wUnit()==='lb'?kg/KG_PER_LB:kg;
+const fromDisp=v=>wUnit()==='lb'?v*KG_PER_LB:v;
+const fmtW=kg=>kg==null?'–':toDisp(kg).toFixed(1);
+const fmt=(v,dp=0)=>v==null||isNaN(v)?'–':Number(v).toLocaleString([], {maximumFractionDigits:dp,minimumFractionDigits:dp});
+const num=v=>{const n=parseFloat(String(v).replace(',','.')); return isFinite(n)?n:null};
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+/* ---------------- Derived data ---------------- */
+function targetsFor(day){
+  const t=[...state.settings.targets].sort((a,b)=>a.from<b.from?-1:1);
+  let cur=t[0]; for(const x of t) if(x.from<=day) cur=x; return cur;
+}
+const entriesFor=day=>state.entries.filter(e=>e.date===day).sort((a,b)=>(a.ts||'')<(b.ts||'')?-1:1);
+function totalsFor(day){const t={}; METRICS.forEach(m=>t[m.k]=0); entriesFor(day).forEach(e=>METRICS.forEach(m=>t[m.k]+=Number(e[m.k])||0)); return t}
+const weighinsSorted=()=>[...state.weighins].sort((a,b)=>a.date<b.date?1:-1);
+const weighinOn=day=>state.weighins.find(w=>w.date===day);
+
+/* ---------------- Google Drive sync ---------------- */
+// Uses the drive.file scope, so the app can only see the one file it creates.
+const DRIVE_FILE='Nutrition Helper data.json', DAPI='https://www.googleapis.com';
+const Drive={token:null,exp:0,fileId:lsGet('nh.driveFile'),on:!!lsGet('nh.driveOn'),busy:false,last:null,timer:null,err:null,lastAsk:0};
+// Keep the short-lived Google token across reloads so reopening the app doesn't pause sync
+(()=>{const t=lsGet('nh.driveTok'); if(Drive.on&&t&&t.exp>Date.now()){Drive.token=t.token;Drive.exp=t.exp}})();
+const driveConfigured=()=>!!GOOGLE_CLIENT_ID;
+const driveLive=()=>!!Drive.token&&Date.now()<Drive.exp;
+function loadGis(){return new Promise((res,rej)=>{
+  if(window.google&&google.accounts&&google.accounts.oauth2) return res();
+  const sc=document.createElement('script'); sc.src='https://accounts.google.com/gsi/client'; sc.onload=res; sc.onerror=()=>rej(new Error('gis')); document.head.appendChild(sc)})}
+function driveToken(){return new Promise(async(res,rej)=>{
+  try{await loadGis()}catch(e){return rej(e)}
+  const c=google.accounts.oauth2.initTokenClient({client_id:GOOGLE_CLIENT_ID,scope:'https://www.googleapis.com/auth/drive.file',
+    callback:r=>{if(r.error) return rej(r); Drive.token=r.access_token; Drive.exp=Date.now()+(Number(r.expires_in||3600)-60)*1000; lsSet('nh.driveTok',{token:Drive.token,exp:Drive.exp}); res()},
+    error_callback:rej});
+  c.requestAccessToken({prompt:Drive.on?'':'consent'});
+})}
+async function dfetch(path,opt={}){
+  if(!driveLive()) throw {code:'expired'};
+  const r=await fetch(DAPI+path,{...opt,headers:{...(opt.headers||{}),Authorization:'Bearer '+Drive.token}});
+  if(r.status===401){Drive.token=null; lsSet('nh.driveTok',null); throw {code:'expired'}}
+  if(!r.ok) throw {code:'http',status:r.status};
+  return r;
+}
+async function driveFind(){
+  if(Drive.fileId){
+    try{const j=await (await dfetch(`/drive/v3/files/${Drive.fileId}?fields=id,trashed`)).json(); if(!j.trashed) return Drive.fileId}
+    catch(e){if(e.code==='expired') throw e}
+  }
+  const q=encodeURIComponent(`name='${DRIVE_FILE}' and trashed=false`);
+  const j=await (await dfetch(`/drive/v3/files?q=${q}&orderBy=modifiedTime desc&fields=files(id)`)).json();
+  Drive.fileId=j.files&&j.files[0]?j.files[0].id:null; lsSet('nh.driveFile',Drive.fileId);
+  return Drive.fileId;
+}
+const snapshot=()=>({app:'nutrition-helper',v:1,saved:nowIso(),...state});
+async function driveRead(){const id=await driveFind(); return id?(await dfetch(`/drive/v3/files/${id}?alt=media`)).json():null}
+async function driveWrite(){
+  const body=JSON.stringify(snapshot());
+  const id=await driveFind();
+  if(id){await dfetch(`/upload/drive/v3/files/${id}?uploadType=media`,{method:'PATCH',headers:{'Content-Type':'application/json'},body});return}
+  const b='nh'+uid6(), meta=JSON.stringify({name:DRIVE_FILE,mimeType:'application/json'});
+  const multi=`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`;
+  const j=await (await dfetch('/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body:multi})).json();
+  Drive.fileId=j.id; lsSet('nh.driveFile',j.id);
+}
+// Combine another copy (Drive or a backup) with this browser: records from both minus deletions, the newer edit of each record, the newer settings
+function mergeIn(r){
+  if(!r||r.app!=='nutrition-helper') return false;
+  const o=normalize(r), before=JSON.stringify(state);
+  const del=new Set([...state.deleted,...o.deleted]);
+  for(const k of ['entries','weighins','foods']){
+    const byId=new Map();
+    [...o[k],...state[k]].forEach(x=>{if(!x.id||del.has(x.id)) return; const h=byId.get(x.id); if(!h||(x.u||'')>=(h.u||'')) byId.set(x.id,x)});
+    state[k]=[...byId.values()];
+  }
+  state.deleted=[...del];
+  if((o.settings.updatedAt||'')>(state.settings.updatedAt||'')) state.settings=o.settings;
+  lsSet(LS_KEY,state);
+  return JSON.stringify(state)!==before;
+}
+function driveStatus(){
+  if(!driveConfigured()||!Drive.on) return null;
+  if(Drive.busy) return 'Syncing with Google Drive…';
+  if(Drive.err) return Drive.err;
+  if(!driveLive()) return 'Google Drive paused';
+  return 'Synced to Google Drive'+(Drive.last?' · '+Drive.last.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}):'');
+}
+function showDriveStatus(){const t=driveStatus(); setSaveState(t||'Saved in this browser'); const b=document.getElementById('driveResume'); if(b) b.hidden=!(driveConfigured()&&Drive.on&&!driveLive()&&!Drive.busy)}
+async function driveSync(interactive){
+  if(Drive.busy) return;
+  try{
+    if(!driveLive()){ if(!interactive){showDriveStatus();return} await driveToken() }
+    Drive.busy=true; Drive.err=null; showDriveStatus();
+    const changed=mergeIn(await driveRead());
+    await driveWrite();
+    Drive.on=true; lsSet('nh.driveOn',true); Drive.last=new Date();
+    if(changed) render();
+  }catch(e){
+    if(e&&e.code!=='expired') Drive.err=(e.type==='popup_closed'||e.error==='access_denied')?null:'Couldn’t reach Google Drive';
+    if(interactive&&Drive.err) toast('Couldn’t connect to Google Drive. Everything is still saved in this browser.');
+  }finally{Drive.busy=false; showDriveStatus(); if(tab==='settings') render()}
+}
+function driveSoon(){
+  if(!driveConfigured()||!Drive.on) return;
+  clearTimeout(Drive.timer);
+  Drive.timer=setTimeout(async()=>{
+    if(!driveLive()){showDriveStatus();return}
+    try{Drive.busy=true;showDriveStatus();await driveWrite();Drive.last=new Date();Drive.err=null}
+    catch(e){if(e.code!=='expired')Drive.err='Couldn’t reach Google Drive'}
+    finally{Drive.busy=false;showDriveStatus()}
+  },3000);
+}
+function driveDisconnect(){
+  if(Drive.token&&window.google&&google.accounts&&google.accounts.oauth2) google.accounts.oauth2.revoke(Drive.token,()=>{});
+  Drive.token=null; Drive.on=false; Drive.err=null; lsSet('nh.driveOn',false); lsSet('nh.driveTok',null); showDriveStatus(); render();
+}
+function drivePanel(){
+  if(!driveConfigured()) return `<p class="small muted">Google Drive sync isn’t set up for this copy of the app yet.</p>`;
+  if(!Drive.on) return `<p class="small">Keep your food log, weigh-ins and targets in your own Google Drive and pick them up on any device. The app can only see the one file it creates there.</p>
+    <div class="row"><button class="btn sm primary" data-act="driveConnect">Connect Google Drive</button></div>`;
+  return `<p class="small">${esc(driveStatus()||'')}. Changes save to <b>${esc(DRIVE_FILE)}</b> in your Drive a few seconds after you make them.</p>
+    <div class="row">${driveLive()?`<button class="btn sm" data-act="driveSync">Sync now</button>`:`<button class="btn sm primary" data-act="driveSync">Resume sync</button>`}
+    <button class="btn sm ghost" data-act="driveOff">Disconnect</button></div>`;
+}
+
+/* ---------------- Views ---------------- */
+let tab=(()=>{try{return sessionStorage.getItem('nh.tab')||'today'}catch(_){return 'today'}})();
+let day=todayKey(), pendingDelete=null;
+
+function budgetCard(m,eaten,target){
+  const left=target-eaten, pct=target>0?Math.min(100,eaten/target*100):0;
+  let cls='', rem;
+  if(m.kind==='floor'){
+    if(left<=0){cls='done'; rem=`<b>Reached</b>${left<0?` · ${fmt(-left)} ${m.u} over`:''}`}
+    else rem=`<b>${fmt(left)}</b> ${m.u} to go`;
+  }else if(left<0){cls='over'; rem=`<b>${fmt(-left)}</b> ${m.u} over`}
+  else rem=`<b>${fmt(left)}</b> ${m.u} left`;
+  return `<div class="m ${cls}"><span class="lbl">${m.n}${m.kind==='ceiling'?' (max)':m.kind==='floor'?' (min)':''}</span>
+    <span class="big">${fmt(eaten)}<small> / ${fmt(target)} ${m.u}</small></span>
+    <div class="meter" role="img" aria-label="${m.n}: ${fmt(eaten)} of ${fmt(target)} ${m.u}"><i style="width:${pct}%"></i></div>
+    <span class="rem">${rem}</span></div>`;
+}
+function viewToday(){
+  const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), w=weighinOn(day);
+  return `<div class="stack">
+    <div class="daybar">
+      <h2>${esc(dayLabel(day))}</h2>
+      <button class="btn nav-btn" data-day="-1" aria-label="Previous day">‹</button>
+      <input type="date" id="dayPick" value="${day}" aria-label="Pick a day">
+      <button class="btn nav-btn" data-day="1" aria-label="Next day">›</button>
+      ${day!==todayKey()?'<button class="btn sm" data-act="goToday">Today</button>':''}
+    </div>
+    <section class="budget" aria-label="Daily budget">${METRICS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
+    <section class="panel stack">
+      <h3>Add food</h3>
+      <form class="form" id="quickAdd" autocomplete="off">
+        <label class="field wide">Food<input type="text" name="name" placeholder="e.g. Greek yogurt, 200 g" required></label>
+        ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0"></label>`).join('')}
+        <div class="row" style="grid-column:1/-1"><button class="btn primary" type="submit">Add to ${day===todayKey()?'today':esc(dayLabel(day))}</button>
+          <span class="small muted">Food search and barcode scanning come next.</span></div>
+      </form>
+    </section>
+    <section class="panel stack">
+      <h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
+      ${list.length?`<div class="entries">${list.map(e=>`<div class="ent">
+        <div><div class="nm">${esc(e.name)}</div><div class="meta">P ${fmt(e.protein)} · F ${fmt(e.fat)} · C ${fmt(e.carbs)} · Na ${fmt(e.sodium)} mg</div></div>
+        <span class="kc">${fmt(e.kcal)} kcal</span>
+        <button class="x-btn" data-rment="${e.id}" aria-label="Remove ${esc(e.name)}">×</button></div>`).join('')}</div>`
+        :`<p class="empty">Nothing logged yet.</p>`}
+    </section>
+    <section class="panel stack">
+      <h3>Weigh-in</h3>
+      ${w?`<p>${fmtW(w.kg)} ${wUnit()}${w.fat!=null?` · ${fmt(w.fat,1)}% body fat`:''} <button class="btn sm ghost" data-goto="weight">Edit</button></p>`
+        :weighForm(day,'todayWeigh')}
+    </section>
+  </div>`;
+}
+function weighForm(d,id){
+  return `<form class="form" id="${id}" autocomplete="off">
+    <label class="field">Date<input type="date" name="date" value="${d}" required></label>
+    <label class="field">Weight (${wUnit()})<input type="number" name="weight" inputmode="decimal" step="0.1" min="0" required></label>
+    <label class="field">Body fat %<input type="number" name="fat" inputmode="decimal" step="0.1" min="0" max="80"></label>
+    <div class="row" style="align-self:end"><button class="btn primary" type="submit">Save weigh-in</button></div>
+  </form>`;
+}
+function viewWeight(){
+  const ws=weighinsSorted(), last=ws[0];
+  const weekAgo=last?ws.find(w=>w.date<=addDays(last.date,-7)):null;
+  const ch=last&&weekAgo?last.kg-weekAgo.kg:null;
+  return `<div class="stack">
+    <h2>Weight</h2>
+    <section class="stats">
+      <div class="stat panel"><b>${last?fmtW(last.kg):'–'}</b><span>Latest (${wUnit()})</span></div>
+      <div class="stat panel"><b>${ch==null?'–':(ch>0?'+':'')+toDisp(ch).toFixed(1)}</b><span>vs a week before</span></div>
+      <div class="stat panel"><b>${last&&last.fat!=null?fmt(last.fat,1):'–'}</b><span>Body fat %</span></div>
+      <div class="stat panel"><b>${ws.length}</b><span>Weigh-ins</span></div>
+    </section>
+    <section class="panel stack"><h3>Add a weigh-in</h3>${weighForm(todayKey(),'weighForm')}</section>
+    <section class="panel stack"><h3>History</h3>
+      ${ws.length?`<div>${ws.slice(0,60).map(w=>`<div class="wrow"><span class="d">${esc(dayLabel(w.date))}</span>
+        <span class="v">${fmtW(w.kg)} ${wUnit()}${w.fat!=null?` · ${fmt(w.fat,1)}%`:''}</span><span></span>
+        <button class="x-btn" data-rmweigh="${w.id}" aria-label="Remove weigh-in for ${esc(dayLabel(w.date))}">×</button></div>`).join('')}</div>
+        ${ws.length>60?`<p class="small muted">Showing the latest 60 of ${ws.length}.</p>`:''}`
+        :`<p class="empty">No weigh-ins yet.</p>`}
+    </section>
+  </div>`;
+}
+function viewSettings(){
+  const t=targetsFor(todayKey());
+  return `<div class="stack">
+    <h2>Settings</h2>
+    <section class="panel stack"><h3>Daily targets</h3>
+      <p class="small muted">Used from today onward. Earlier days keep the targets they had.</p>
+      <form class="form" id="targetsForm" autocomplete="off">
+        ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${t[m.k]}" required></label>`).join('')}
+        <div class="row" style="align-self:end"><button class="btn primary" type="submit">Save targets</button></div>
+      </form>
+    </section>
+    <section class="panel stack"><h3>Units</h3>
+      <div class="row"><span class="small">Body weight</span>
+        <div class="seg" role="group" aria-label="Body weight unit">${['lb','kg'].map(u=>`<button data-wunit="${u}" aria-pressed="${wUnit()===u}">${u}</button>`).join('')}</div></div>
+    </section>
+    <section class="panel stack"><h3>Google Drive</h3>${drivePanel()}</section>
+    <section class="panel stack"><h3>Backup &amp; reset</h3>
+      <p class="small">${Drive.on?'Your data is saved in this browser and in your Google Drive.':'Your data is saved in this browser only. Connect Google Drive or export a backup to use it on another device.'} The backup is a plain JSON file you can import into any copy of this app.</p>
+      <div class="row"><button class="btn sm" data-act="export">Export backup</button>
+      <label class="btn sm" for="importFile" style="display:inline-block">Import backup</label><input type="file" id="importFile" accept="application/json,.json" hidden>
+      ${pendingDelete==='ALL'?`<button class="btn sm danger" data-act="resetYes">Erase everything</button><button class="btn sm ghost" data-act="resetNo">Cancel</button>`:`<button class="btn sm ghost danger" data-act="resetAsk">Start over</button>`}</div>
+    </section>
+  </div>`;
+}
+let renderedToday=todayKey();
+function render(){
+  renderedToday=todayKey();
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));
+  const v={today:viewToday,weight:viewWeight,settings:viewSettings}[tab]||viewToday;
+  document.getElementById('main').innerHTML=v();
+}
+
+/* ---------------- Events ---------------- */
+function toast(t){const h=document.getElementById('toastHost');h.innerHTML=`<div class="toast" role="status">${esc(t)}</div>`;clearTimeout(toast.t);toast.t=setTimeout(()=>h.innerHTML='',2600)}
+function saveWeighin(f){
+  const d=f.get('date'), w=num(f.get('weight')), fat=num(f.get('fat'));
+  if(!d||!w||w<=0){toast('Enter a weight.');return false}
+  const old=weighinOn(d);
+  putRecord('weighins',{id:old?old.id:'w'+uid6(),date:d,kg:+fromDisp(w).toFixed(3),fat:fat==null?null:fat});
+  toast(old?'Weigh-in updated':'Weigh-in saved'); return true;
+}
+document.addEventListener('submit',e=>{
+  e.preventDefault();
+  const f=new FormData(e.target), id=e.target.id;
+  if(id==='quickAdd'){
+    const name=String(f.get('name')||'').trim(); if(!name){toast('Name the food.');return}
+    const rec={id:'e'+uid6(),date:day,ts:nowIso(),name};
+    METRICS.forEach(m=>rec[m.k]=num(f.get(m.k))||0);
+    putRecord('entries',rec); toast(`Added ${name}`); render(); document.querySelector('#quickAdd [name=name]').focus(); return}
+  if(id==='todayWeigh'||id==='weighForm'){if(saveWeighin(f)) render(); return}
+  if(id==='targetsForm'){
+    const t={from:todayKey()}; for(const m of METRICS){const v=num(f.get(m.k)); if(v==null||v<0){toast(`Enter a ${m.n.toLowerCase()} target.`);return} t[m.k]=v}
+    state.settings.targets=state.settings.targets.filter(x=>x.from!==t.from).concat(t); touchSettings(); toast('Targets saved'); render(); return}
+});
+// Google tokens last an hour. Renew on a tap when it's close to running out: a token request needs a tap,
+// and for an account that already agreed Google's window closes by itself.
+document.addEventListener('click',e=>{
+  if(!driveConfigured()||!Drive.on||Drive.busy||e.target.closest('[data-act^="drive"],#driveResume')) return;
+  if(Drive.exp-Date.now()>10*60000||Date.now()-Drive.lastAsk<5*60000) return;
+  Drive.lastAsk=Date.now(); driveToken().then(()=>driveSync(false)).catch(()=>showDriveStatus());
+},true);
+document.addEventListener('click',async e=>{
+  const t=e.target.closest('button'); if(!t||t.getAttribute('type')==='submit') return;
+  const d=t.dataset;
+  if(d.tab){tab=d.tab;pendingDelete=null;try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();window.scrollTo(0,0);return}
+  if(d.goto){tab=d.goto;render();window.scrollTo(0,0);return}
+  if(d.day){day=addDays(day,+d.day);render();return}
+  if(d.act==='goToday'){day=todayKey();render();return}
+  if(d.rment){const x=state.entries.find(e=>e.id===d.rment); dropRecord('entries',d.rment); toast(`Removed ${x?x.name:'entry'}`); render(); return}
+  if(d.rmweigh){dropRecord('weighins',d.rmweigh); toast('Weigh-in removed'); render(); return}
+  if(d.wunit){state.settings.weightUnit=d.wunit; touchSettings(); render(); return}
+  if(d.act==='resetAsk'){pendingDelete='ALL';render();return}
+  if(d.act==='resetNo'){pendingDelete=null;render();return}
+  if(d.act==='resetYes'){
+    const ids=[...state.entries,...state.weighins,...state.foods].map(x=>x.id);
+    state={...emptyState(),deleted:state.deleted.concat(ids)}; touchSettings(); pendingDelete=null; toast('Everything erased'); render(); return}
+  if(d.act==='driveConnect'||d.act==='driveSync'){driveSync(true);return}
+  if(d.act==='driveOff'){driveDisconnect();return}
+  if(d.act==='export'){
+    const data=JSON.stringify(snapshot(),null,2);
+    try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));a.download='nutrition-helper-backup-'+todayKey()+'.json';document.body.appendChild(a);a.click();a.remove();toast('Backup downloaded')}
+    catch(_){try{await navigator.clipboard.writeText(data);toast('Backup copied to clipboard')}catch(__){toast('Export isn’t available here')}}
+    return}
+});
+document.addEventListener('change',async e=>{
+  const t=e.target;
+  if(t.id==='dayPick'&&t.value){day=t.value;render();return}
+  if(t.id==='importFile'&&t.files[0]){
+    try{const j=JSON.parse(await t.files[0].text()); if(j.app!=='nutrition-helper') throw 0;
+      const n=state.entries.length+state.weighins.length;
+      mergeIn(j); saveLocal();
+      toast(`Imported ${Math.max(0,state.entries.length+state.weighins.length-n)} new records`); render();
+    }catch(_){toast('That file isn’t a Nutrition Helper backup.')}
+    t.value='';
+  }
+});
+
+render();
+showDriveStatus();
+if(driveConfigured()&&Drive.on){
+  loadGis().catch(()=>{});            // ready for the next tap-to-renew
+  if(driveLive()) driveSync(false);   // pick up changes made on other devices
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&driveLive()) driveSync(false)});
+}
+// The day rolls over while the app stays open on a phone
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'||day!==renderedToday||day===todayKey()) return; day=todayKey(); render()});
+</script>
+
+<script src="https://petravanta.github.io/general/shared/hub-link.js" defer></script>
+</body>
+</html>
