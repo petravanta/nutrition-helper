@@ -1075,7 +1075,7 @@ function sheetImport(){
       <li><b>${fmt(p.foods.length)}</b> custom foods and favorites</li>
       ${Object.keys(p.profile).length&&!state.settings.profile.sex?'<li>Your profile (sex, birth year, height)</li>':''}
     </ul>
-    ${p.skippedDays?`<p class="note">${fmt(p.skippedDays)} ${p.skippedDays===1?'day':'days'} you’ve already logged here are kept as they are.</p>`:''}
+    ${p.skippedDays?`<p class="note">Days you’ve already logged in this app (${fmt(p.skippedDays)}) are left as they are.</p>`:''}
     <p class="note">Each day comes in as one daily total, since the export doesn’t list individual meals. Your trend weight, expenditure and charts include it straight away.</p>
     <div class="row">${nothing?'<p class="small">Nothing new to import.</p>':'<button class="btn primary big" data-act="doImport">Import</button>'}<button class="btn ghost" data-close="1">Cancel</button></div>`;
 }
