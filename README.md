@@ -23,8 +23,7 @@ It runs in any modern browser on phone or desktop, with no sign-up. On a phone, 
 - **Weekly check-in:** once a week, Today offers a new budget from your latest expenditure. Apply it, or skip it for today. Once you reach the target, the check-in switches to holding your weight.
 - **Trends:** charts of weight (scale, trend and the planned goal path), expenditure, body fat, and each nutrient against its target, over 1 month, 3 months, 6 months, 1 year or everything. Long ranges show weekly averages. Hover or arrow-key through any chart to read values, or open its data table.
 - **Targets:** set daily targets by hand in *Settings*, or let the goal and check-ins set them. A change applies from that day on, so earlier days keep the targets they had.
-
-Coming next: importing a MacroFactor export.
+- **Import from MacroFactor:** under *Settings*, pick MacroFactor's `.xlsx` export (or a Google Sheets copy downloaded as Excel). You see what will come in before anything is saved: daily food totals, weigh-ins with body fat %, custom foods and favorites, and your profile if you haven't filled one in. Days already logged in this app are left alone, and importing the same export again updates rather than duplicates. The file is read in the browser with [SheetJS](https://sheetjs.com) and never uploaded; only the imported records are kept, in your browser and your Drive.
 
 USDA search uses the shared `DEMO_KEY`, which has a low hourly limit per network. A free personal key from [fdc.nal.usda.gov/api-key-signup](https://fdc.nal.usda.gov/api-key-signup) can be added under *Settings → Food search*.
 

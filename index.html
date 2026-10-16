@@ -855,6 +855,10 @@ function viewSettings(){
       <p class="small">USDA search uses a shared demo key with a low hourly limit. A free personal key from <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener">fdc.nal.usda.gov</a> removes it.</p>
       <form class="row" id="usdaForm" autocomplete="off"><input type="text" name="key" value="${esc(state.settings.usdaKey)}" placeholder="USDA API key (optional)" aria-label="USDA API key" style="flex:1 1 240px"><button class="btn sm" type="submit">Save key</button></form>
     </section>
+    <section class="panel stack"><h3>Import from MacroFactor</h3>
+      <p class="small">In MacroFactor, export your data (More → Data Management → Data Export), then pick the <b>.xlsx</b> file here. If it\u2019s in Google Sheets, use File → Download → Microsoft Excel. The file is read on this device and only what\u2019s imported is kept.</p>
+      <div class="row"><label class="btn sm" for="mfFile" style="display:inline-block">Choose export file</label><input type="file" id="mfFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></div>
+    </section>
     <section class="panel stack"><h3>Google Drive</h3>${drivePanel()}</section>
     <section class="panel stack"><h3>Backup &amp; reset</h3>
       <p class="small">${Drive.on?'Your data is saved in this browser and in your Google Drive.':'Your data is saved in this browser only. Connect Google Drive or export a backup to use it on another device.'} The backup is a plain JSON file you can import into any copy of this app.</p>
@@ -987,6 +991,106 @@ function viewTrends(){
   </div>`;
 }
 
+/* ---------------- MacroFactor import ---------------- */
+// Reads MacroFactor's .xlsx export in the browser (SheetJS from cdnjs); nothing leaves the device.
+// Daily totals become one entry per day, scale weights become weigh-ins, custom foods and favorites join My foods.
+// Ids are derived from dates and names, so importing the same export again updates rather than duplicates.
+function loadSheetJs(){return new Promise((res,rej)=>{
+  if(window.XLSX) return res(window.XLSX);
+  const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  sc.onload=()=>window.XLSX?res(window.XLSX):rej(new Error('xlsx')); sc.onerror=()=>rej(new Error('xlsx')); document.head.appendChild(sc)})}
+function cellDay(v){
+  if(v instanceof Date&&!isNaN(v)){const d=new Date(v.getTime()+12*36e5); return dkey(d)}   // SheetJS dates can land just before local midnight
+  const s=String(v??'').trim(), m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)||s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(!m) return null;
+  return m[1].length===4?`${m[1]}-${pad(+m[2])}-${pad(+m[3])}`:`${m[3]}-${pad(+m[1])}-${pad(+m[2])}`;
+}
+// Find a column by the start of its header, e.g. col(row,/^calories/)
+const col=(row,re)=>{const k=Object.keys(row).find(h=>re.test(h.trim().toLowerCase())); return k==null?null:row[k]};
+const colName=(rows,re)=>rows.length?Object.keys(rows[0]).find(h=>re.test(h.trim().toLowerCase())):null;
+function readMacroFactor(XLSX,buf){
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
+  const sheet=n=>{const k=wb.SheetNames.find(s=>s.trim().toLowerCase()===n); return k?XLSX.utils.sheet_to_json(wb.Sheets[k],{defval:null,raw:true}):[]};
+  const macros=sheet('calories & macros'), micros=sheet('micronutrients'), scale=sheet('scale weight');
+  if(!macros.length&&!scale.length) throw new Error('not-mf');
+  const sodium={}; for(const r of micros){const d=cellDay(col(r,/^date/)); if(d) sodium[d]=num(col(r,/^sodium/))}
+  const days=[];
+  for(const r of macros){
+    const d=cellDay(col(r,/^date/)); if(!d) continue;
+    const t={kcal:num(col(r,/^calories/))||0,protein:num(col(r,/^protein/))||0,fat:num(col(r,/^fat/))||0,carbs:num(col(r,/^carbs/))||0,sodium:sodium[d]||0};
+    if(t.kcal>0||t.protein>0) days.push({date:d,...t});
+  }
+  const wcol=colName(scale,/^weight/)||'', toKg=/kg/i.test(wcol)?1:KG_PER_LB;
+  const weighins=[];
+  for(const r of scale){
+    const d=cellDay(col(r,/^date/)), w=num(col(r,/^weight/)); if(!d||!w) continue;
+    let f=num(col(r,/^fat/)); if(f!=null&&f>0&&f<1) f*=100;
+    weighins.push({date:d,kg:+(w*toKg).toFixed(3),fat:f||null});
+  }
+  const foods=new Map();
+  for(const r of [...sheet('custom foods'),...sheet('favorites')]){
+    const name=String(col(r,/^food name/)||'').trim(), g=num(col(r,/^serving weight/)); if(!name||!g||g<=0||foods.has(name.toLowerCase())) continue;
+    const per=k=>(num(col(r,k))||0)*100/g, qty=num(col(r,/^serving qty/)), size=String(col(r,/^serving size/)||'').trim();
+    foods.set(name.toLowerCase(),{name,brand:'',barcode:'',source:'custom',ext:'mf:'+name.toLowerCase(),base:'g',
+      per100:{kcal:per(/^calories/),protein:per(/^protein/),fat:per(/^fat \(/),carbs:per(/^carbs/),sodium:per(/^sodium/)},
+      servings:[{n:size?`${qty&&qty!==1?fmtQty(qty)+' ':''}${size}`:`${fmtQty(g)} g`,amt:g}]});
+  }
+  const prof=sheet('user profile')[0], profile={};
+  if(prof){
+    const sex=String(col(prof,/^sex/)||'').toLowerCase(), bd=cellDay(col(prof,/^birthday/)), h=num(col(prof,/^height/));
+    if(sex.startsWith('f')) profile.sex='female'; else if(sex.startsWith('m')) profile.sex='male';
+    if(bd) profile.birthYear=+bd.slice(0,4);
+    if(h) profile.heightCm=+(h*(/cm/i.test(Object.keys(prof).find(k=>/^height/i.test(k))||'')?1:2.54)).toFixed(1);
+  }
+  return {days:days.sort((a,b)=>a.date<b.date?-1:1),weighins:weighins.sort((a,b)=>a.date<b.date?-1:1),foods:[...foods.values()],profile};
+}
+// What would change: days you've already logged in this app, and weigh-ins already here, are left alone
+function importPlan(x){
+  const own=new Set(state.entries.filter(e=>!e.imported).map(e=>e.date));
+  const ownW=new Set(state.weighins.filter(w=>!w.imported).map(w=>w.date));
+  const haveFood=new Set(state.foods.map(f=>f.name.toLowerCase()));
+  return {days:x.days.filter(d=>!own.has(d.date)),weighins:x.weighins.filter(w=>!ownW.has(w.date)),foods:x.foods.filter(f=>!haveFood.has(f.name.toLowerCase())||foodByExt(f.ext)),
+    skippedDays:x.days.length-x.days.filter(d=>!own.has(d.date)).length,profile:x.profile};
+}
+function applyImport(p){
+  const u=nowIso();
+  const up=(list,rec)=>{rec.u=u; const a=state[list], i=a.findIndex(r=>r.id===rec.id); i>=0?a[i]=rec:a.push(rec)};
+  for(const d of p.days) up('entries',{id:'mf-'+d.date,date:d.date,ts:d.date,name:'MacroFactor daily total',imported:'macrofactor',...d});
+  for(const w of p.weighins) up('weighins',{id:'mfw-'+w.date,imported:'macrofactor',...w});
+  for(const f of p.foods){const have=foodByExt(f.ext); up('foods',{...(have||{uses:0}),...f,id:have?have.id:'f'+uid6()})}
+  const pr=state.settings.profile;
+  if(!pr.sex&&!pr.birthYear&&!pr.heightCm&&Object.keys(p.profile).length){Object.assign(pr,p.profile); state.settings.updatedAt=u}
+  saveLocal();
+}
+const rangeText=list=>list.length?`${esc(parseDay(list[0].date).toLocaleDateString([], {month:'short',year:'numeric'}))} to ${esc(parseDay(list[list.length-1].date).toLocaleDateString([], {month:'short',year:'numeric'}))}`:'';
+function sheetImport(){
+  const p=sheet.plan;
+  if(!p) return `<h2>Import from MacroFactor</h2><p class="note"><span class="spin"></span>Reading ${esc(sheet.fileName||'the file')}…</p>`;
+  const nothing=!p.days.length&&!p.weighins.length&&!p.foods.length;
+  return `<h2>Import from MacroFactor</h2>
+    <p class="small muted">${esc(sheet.fileName)}</p>
+    <ul class="small">
+      <li><b>${fmt(p.days.length)}</b> days of food totals${p.days.length?`, ${rangeText(p.days)}`:''}</li>
+      <li><b>${fmt(p.weighins.length)}</b> weigh-ins${p.weighins.length?`, ${rangeText(p.weighins)}`:''}</li>
+      <li><b>${fmt(p.foods.length)}</b> custom foods and favorites</li>
+      ${Object.keys(p.profile).length&&!state.settings.profile.sex?'<li>Your profile (sex, birth year, height)</li>':''}
+    </ul>
+    ${p.skippedDays?`<p class="note">${fmt(p.skippedDays)} ${p.skippedDays===1?'day':'days'} you’ve already logged here are kept as they are.</p>`:''}
+    <p class="note">Each day comes in as one daily total, since the export doesn’t list individual meals. Your trend weight, expenditure and charts include it straight away.</p>
+    <div class="row">${nothing?'<p class="small">Nothing new to import.</p>':'<button class="btn primary big" data-act="doImport">Import</button>'}<button class="btn ghost" data-close="1">Cancel</button></div>`;
+}
+async function startImport(file){
+  openSheet({type:'import',fileName:file.name,plan:null});
+  try{
+    const XLSX=await loadSheetJs(), x=readMacroFactor(XLSX,await file.arrayBuffer());
+    if(!sheet||sheet.type!=='import') return;
+    sheet.plan=importPlan(x); renderSheet();
+  }catch(e){
+    closeSheet();
+    toast(e.message==='xlsx'?'Couldn’t load the spreadsheet reader. Check your connection and try again.':'That file doesn’t look like a MacroFactor export (.xlsx).');
+  }
+}
+
 /* ---------------- Sheets ---------------- */
 // sheet: {type:'food', food, entryId?} | {type:'scan'} | {type:'quick', entryId?} | {type:'editFood', food, then?}
 function sheetFood(){
@@ -1045,7 +1149,7 @@ function sheetScan(){
 function renderSheet(){
   const h=document.getElementById('sheetHost');
   if(!sheet){h.innerHTML='';return}
-  const body={food:sheetFood,quick:sheetQuick,editFood:sheetEditFood,scan:sheetScan,goal:sheetGoal}[sheet.type]();
+  const body={food:sheetFood,quick:sheetQuick,editFood:sheetEditFood,scan:sheetScan,goal:sheetGoal,import:sheetImport}[sheet.type]();
   h.innerHTML=`<div class="scrim" data-close="1"></div><div class="drawer" role="dialog" aria-modal="true"><button class="x" data-close="1" aria-label="Close">×</button>${body}</div>`;
   const first=h.querySelector('#pQty,#quickAdd input,#foodForm input,#gTarget');
   if(first) first.focus({preventScroll:true});
@@ -1207,6 +1311,8 @@ document.addEventListener('click',async e=>{
   if(d.rment){const x=state.entries.find(e=>e.id===d.rment); dropRecord('entries',d.rment); toast(`Removed ${x?x.name:'entry'}`); if(sheet) closeSheet(); render(); return}
   if(d.act==='scan'){openSheet({type:'scan'});return}
   if(d.act==='goal'){openSheet({type:'goal'});return}
+  if(d.act==='doImport'&&sheet&&sheet.plan){const p=sheet.plan; applyImport(p); closeSheet();
+    toast(`Imported ${fmt(p.days.length)} days, ${fmt(p.weighins.length)} weigh-ins and ${fmt(p.foods.length)} foods`); tab='trends'; try{sessionStorage.setItem('nh.tab',tab)}catch(_){}; render(); return}
   if(d.act==='clearGoal'){state.settings.goal=null; touchSettings(); toast('Goal cleared. Your targets stay as they are.'); render(); return}
   if(d.act==='applyCheckin'||d.act==='checkinNow'){const p=proposal(); if(!p){toast('Not enough data to recalibrate yet.');return} applyProposal(p); toast(`Budget updated: ${fmt(p.targets.kcal)} kcal a day`); render(); return}
   if(d.act==='snooze'){lsSet('nh.snooze',todayKey()); render(); return}
@@ -1243,6 +1349,7 @@ document.addEventListener('change',async e=>{
     if(amt>0&&one>0) q.value=fmtQty(amt/one);
     t.dataset.prev=t.value;
     document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,q.value,t.value); return}
+  if(t.id==='mfFile'&&t.files[0]){const f=t.files[0]; t.value=''; startImport(f); return}
   if(t.id==='importFile'&&t.files[0]){
     try{const j=JSON.parse(await t.files[0].text()); if(j.app!=='nutrition-helper') throw 0;
       const n=state.entries.length+state.weighins.length;
