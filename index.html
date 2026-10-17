@@ -111,8 +111,9 @@ textarea{resize:vertical}
 :root{--accent:#c2410c; --accent-ink:#ffffff; --accent-soft:#fde4d6; --ok:#11897a; --over:#b3261e}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--accent:#fb8a4c; --accent-ink:#1f0c03; --accent-soft:#3d2014; --ok:#3cc3ad; --over:#ff8a80}}
 :root[data-theme="dark"]{--accent:#fb8a4c; --accent-ink:#1f0c03; --accent-soft:#3d2014; --ok:#3cc3ad; --over:#ff8a80}
-/* Layout: sticky header with tabs over one working column. Today shows the day's budget, food entries and weigh-in. */
-input[type=date]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;font-weight:500;min-width:0}
+/* Layout: sticky header with tabs over one working column. Today shows the day's budget, the food search, entries and weigh-in.
+   Picking a food, scanning, quick add and food editing open in the side sheet (bottom sheet on phones). */
+input[type=date],input[type=search]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;font-weight:500;min-width:0}
 .daybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .daybar h2{margin-right:auto}
 .nav-btn{width:34px;height:34px;padding:0;display:inline-grid;place-items:center;font-size:18px;line-height:1}
@@ -130,12 +131,16 @@ input[type=date]{background:var(--surface);border:1px solid var(--line);border-r
 .m.done .meter i{background:var(--ok)}
 .form{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end}
 .form .wide{grid-column:span 2}
+.form .full{grid-column:1/-1}
 @media (max-width:720px){.form{grid-template-columns:repeat(2,minmax(0,1fr))}.form .wide{grid-column:1/-1}}
-.form input{width:100%}
+.drawer .form{grid-template-columns:repeat(2,minmax(0,1fr))}
+.drawer .form .wide{grid-column:1/-1}
+.form input,.form select{width:100%}
 .entries{display:flex;flex-direction:column}
 .ent{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:2px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
 .ent:first-child{border-top:0}
-.ent .nm{font-weight:600;overflow-wrap:anywhere}
+.ent .nm{font-weight:600;overflow-wrap:anywhere;background:none;border:0;padding:0;text-align:left;color:var(--ink)}
+button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .ent .meta{font-size:12px;color:var(--muted);font-family:var(--f-mono)}
 .ent .kc{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
 .x-btn{background:none;border:0;color:var(--faint);font-size:18px;line-height:1;padding:4px 6px;border-radius:6px}
@@ -148,6 +153,31 @@ input[type=date]{background:var(--surface);border:1px solid var(--line);border-r
 .seg button{border:0;background:var(--surface);padding:5px 12px;font-size:13px;font-weight:600;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
 .brand svg .leaf{fill:var(--surface)}
+/* food search */
+.searchbar{display:flex;gap:8px;flex-wrap:wrap}
+.searchbar input{flex:1 1 220px}
+.results{display:flex;flex-direction:column;gap:14px}
+.rgroup h4{margin:0 0 4px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.food{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);padding:9px 2px;color:var(--ink)}
+.rgroup .food:first-of-type{border-top:0}
+.food:hover .fn{color:var(--accent)}
+.food .fn{font-weight:600;overflow-wrap:anywhere}
+.food .fb{font-size:12px;color:var(--muted)}
+.food .fk{font-family:var(--f-mono);font-size:13px;color:var(--muted);text-align:right;white-space:nowrap}
+.src-tag{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+.preview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;text-align:center}
+.preview div{background:var(--sunk);border-radius:8px;padding:8px 4px}
+.preview b{display:block;font-family:var(--f-mono);font-weight:500;font-size:16px}
+.preview span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+@media (max-width:400px){.preview{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.qty{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:10px}
+.qty input,.qty select{width:100%;font-size:18px}
+.scanbox{position:relative;background:#000;border-radius:var(--r);overflow:hidden;aspect-ratio:4/3}
+.scanbox video{width:100%;height:100%;object-fit:cover;display:block}
+.scanbox::after{content:"";position:absolute;left:12%;right:12%;top:38%;bottom:38%;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 999px rgba(0,0,0,.25)}
+.note{font-size:13px;color:var(--muted)}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;vertical-align:-1px;margin-right:6px}
+@media (prefers-reduced-motion:no-preference){.spin{animation:sp 0.8s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}}
 </style>
 </head>
 <body>
@@ -165,24 +195,36 @@ input[type=date]{background:var(--surface);border:1px solid var(--line);border-r
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="today" aria-selected="true">Today</button>
       <button role="tab" data-tab="weight" aria-selected="false">Weight</button>
+      <button role="tab" data-tab="foods" aria-selected="false">Foods</button>
       <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
     </nav>
   </div>
 </header>
 <main class="wrap" id="main"></main>
+<div id="sheetHost"></div>
 <div id="toastHost"></div>
 
 <script>
 /* ---------------- Metrics ---------------- */
 // Budgets: calories, fat and carbs are targets; protein is a floor to reach; sodium is a ceiling to stay under.
 const METRICS=[
-  {k:'kcal',n:'Calories',u:'kcal',kind:'target'},
-  {k:'protein',n:'Protein',u:'g',kind:'floor'},
-  {k:'fat',n:'Fat',u:'g',kind:'target'},
-  {k:'carbs',n:'Carbs',u:'g',kind:'target'},
-  {k:'sodium',n:'Sodium',u:'mg',kind:'ceiling'}];
+  {k:'kcal',n:'Calories',s:'kcal',u:'kcal',kind:'target'},
+  {k:'protein',n:'Protein',s:'Protein',u:'g',kind:'floor'},
+  {k:'fat',n:'Fat',s:'Fat',u:'g',kind:'target'},
+  {k:'carbs',n:'Carbs',s:'Carbs',u:'g',kind:'target'},
+  {k:'sodium',n:'Sodium',s:'Sodium',u:'mg',kind:'ceiling'}];
 const DEFAULT_TARGETS={kcal:2200,protein:160,fat:70,carbs:230,sodium:2300};
 const KG_PER_LB=0.45359237;
+
+/* ---------------- Units ---------------- */
+// Foods keep nutrition per 100 g (or per 100 ml for drinks). Amounts convert through grams or millilitres;
+// crossing between weight and volume needs the food's density, so those units only show when it's known.
+const UNITS={
+  g:{kind:'mass',f:1,n:'g'}, oz:{kind:'mass',f:28.349523125,n:'oz'}, lb:{kind:'mass',f:453.59237,n:'lb'}, kg:{kind:'mass',f:1000,n:'kg'},
+  ml:{kind:'volume',f:1,n:'ml'}, tsp:{kind:'volume',f:4.92892,n:'tsp'}, tbsp:{kind:'volume',f:14.7868,n:'tbsp'},
+  floz:{kind:'volume',f:29.5735,n:'fl oz'}, cup:{kind:'volume',f:236.588,n:'cup'}, l:{kind:'volume',f:1000,n:'l'}};
+const KIND_OF_BASE={g:'mass',ml:'volume'};
+const unitKind=u=>u&&u.startsWith('srv:')?'serving':(UNITS[u]||{}).kind;
 
 /* ---------------- State & storage ---------------- */
 /* Google Drive sync: the shared OAuth client for petravanta.github.io (see README). Leave empty to turn Drive off. */
@@ -193,6 +235,8 @@ const nowIso=()=>new Date().toISOString();
 // Settings change as a whole (newest wins on merge); entries, weigh-ins and foods are records merged by id.
 function defaultSettings(){return{
   weightUnit:'lb',
+  unitPrefs:{mass:'g',volume:'ml'},   // last weight and volume unit used when logging, reused for every food
+  usdaKey:'',
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
 };}
@@ -205,6 +249,7 @@ function normalize(j){
   const s=emptyState();
   if(!j||typeof j!=='object') return s;
   s.settings=Object.assign(defaultSettings(),j.settings||{});
+  s.settings.unitPrefs=Object.assign(defaultSettings().unitPrefs,s.settings.unitPrefs||{});
   if(!Array.isArray(s.settings.targets)||!s.settings.targets.length) s.settings.targets=defaultSettings().targets;
   for(const k of ['entries','weighins','foods','deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
   return s;
@@ -216,7 +261,7 @@ function putRecord(list,rec){rec.u=nowIso(); const a=state[list], i=a.findIndex(
 function dropRecord(list,id){state[list]=state[list].filter(x=>x.id!==id); state.deleted.push(id); saveLocal()}
 function setSaveState(t){document.getElementById('saveState').textContent=t}
 
-/* ---------------- Dates & units ---------------- */
+/* ---------------- Dates & formatting ---------------- */
 const pad=n=>String(n).padStart(2,'0');
 const dkey=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const parseDay=k=>{const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d)};
@@ -232,7 +277,8 @@ const toDisp=kg=>wUnit()==='lb'?kg/KG_PER_LB:kg;
 const fromDisp=v=>wUnit()==='lb'?v*KG_PER_LB:v;
 const fmtW=kg=>kg==null?'–':toDisp(kg).toFixed(1);
 const fmt=(v,dp=0)=>v==null||isNaN(v)?'–':Number(v).toLocaleString([], {maximumFractionDigits:dp,minimumFractionDigits:dp});
-const num=v=>{const n=parseFloat(String(v).replace(',','.')); return isFinite(n)?n:null};
+const fmtQty=q=>String(+(+q).toFixed(q>=100?0:q>=10?1:2));
+const num=v=>{const n=parseFloat(String(v??'').replace(',','.')); return isFinite(n)?n:null};
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 
 /* ---------------- Derived data ---------------- */
@@ -244,6 +290,96 @@ const entriesFor=day=>state.entries.filter(e=>e.date===day).sort((a,b)=>(a.ts||'
 function totalsFor(day){const t={}; METRICS.forEach(m=>t[m.k]=0); entriesFor(day).forEach(e=>METRICS.forEach(m=>t[m.k]+=Number(e[m.k])||0)); return t}
 const weighinsSorted=()=>[...state.weighins].sort((a,b)=>a.date<b.date?1:-1);
 const weighinOn=day=>state.weighins.find(w=>w.date===day);
+
+/* ---------------- Foods & amounts ---------------- */
+// A food: {id, name, brand, barcode, source:'custom'|'off'|'usda', ext, base:'g'|'ml', per100:{kcal,protein,fat,carbs,sodium},
+//          density (g per ml, optional), servings:[{n:'1 bar', amt: in base units}], lastUnit, lastQty, lastAmt, uses, lastUsed}
+const foodById=id=>state.foods.find(f=>f.id===id);
+const foodByExt=ext=>ext&&state.foods.find(f=>f.ext===ext);
+const foodByBarcode=code=>code&&state.foods.find(f=>f.barcode===code);
+function unitLabel(f,u){if(unitKind(u)==='serving'){const s=f.servings[+u.slice(4)]; return s?s.n:'serving'} return (UNITS[u]||{}).n||u}
+function unitOptions(f){
+  const out=(f.servings||[]).map((s,i)=>'srv:'+i);
+  const prefs=state.settings.unitPrefs, baseKind=KIND_OF_BASE[f.base];
+  for(const kind of ['mass','volume']){
+    if(kind!==baseKind&&!f.density) continue;
+    const list=Object.keys(UNITS).filter(u=>UNITS[u].kind===kind);
+    out.push(prefs[kind],...list.filter(u=>u!==prefs[kind]));
+  }
+  return out;
+}
+// Amount in the food's base unit (g or ml)
+function baseAmount(f,qty,unit){
+  if(unitKind(unit)==='serving'){const s=f.servings[+unit.slice(4)]; return s?qty*s.amt:0}
+  const U=UNITS[unit]; if(!U) return 0;
+  const v=qty*U.f, baseKind=KIND_OF_BASE[f.base];
+  if(U.kind===baseKind) return v;
+  return U.kind==='mass'?v/(f.density||1):v*(f.density||1);
+}
+function nutrientsFor(f,amt){const o={}; METRICS.forEach(m=>o[m.k]=(Number(f.per100[m.k])||0)*amt/100); return o}
+// Sticky units: open a food in the unit it was last logged in, but switch weight or volume units to the ones last used anywhere
+function defaultPortion(f){
+  const opts=unitOptions(f), prefs=state.settings.unitPrefs;
+  let unit=f.lastUnit, qty=f.lastQty;
+  if(unit&&unitKind(unit)!=='serving'&&UNITS[unit]){
+    const pref=prefs[UNITS[unit].kind];
+    if(pref&&pref!==unit&&opts.includes(pref)){qty=(f.lastAmt!=null?f.lastAmt:baseAmount(f,qty,unit))/baseAmount(f,1,pref); unit=pref}
+  }
+  if(!unit||!opts.includes(unit)){unit=opts[0]; qty=unitKind(unit)==='serving'?1:(UNITS[unit].kind==='mass'?(unit==='g'?100:unit==='oz'?4:1):(unit==='ml'?250:1))}
+  return {unit,qty:+fmtQty(qty||1)};
+}
+const per100Summary=f=>`${fmt(f.per100.kcal)} kcal · P ${fmt(f.per100.protein,1)} · F ${fmt(f.per100.fat,1)} · C ${fmt(f.per100.carbs,1)} per 100 ${f.base}`;
+function servingSummary(f){
+  const s=f.servings&&f.servings[0]; if(!s) return per100Summary(f);
+  const n=nutrientsFor(f,s.amt); return `${esc(s.n)}: ${fmt(n.kcal)} kcal · P ${fmt(n.protein,1)} · F ${fmt(n.fat,1)} · C ${fmt(n.carbs,1)}`;
+}
+
+/* ---------------- Food databases ---------------- */
+// Open Food Facts (barcodes and branded foods) and USDA FoodData Central (generic foods). Both allow browser requests.
+const OFF='https://world.openfoodfacts.org', FDC='https://api.nal.usda.gov/fdc/v1';
+const OFF_FIELDS='code,product_name,generic_name,brands,nutriments,serving_size,serving_quantity,serving_quantity_unit,quantity,product_quantity,product_quantity_unit';
+function timedFetch(url,ms=12000){const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t))}
+function fromOFF(p){
+  if(!p) return null;
+  const n=p.nutriments||{}, name=(p.product_name||p.generic_name||'').trim(); if(!name) return null;
+  const sq=num(p.serving_quantity), liquid=/^(ml|cl|l)$/i.test(p.serving_quantity_unit||p.product_quantity_unit||'');
+  const pick=k=>{const v=num(n[k+'_100g']); if(v!=null) return v; const s=num(n[k+'_serving']); return s!=null&&sq?s*100/sq:null};
+  let kcal=pick('energy-kcal'); if(kcal==null){const kj=pick('energy'); if(kj!=null) kcal=kj/4.184}
+  if(kcal==null) return null;
+  const sodiumG=pick('sodium'), saltG=pick('salt');
+  const servings=[]; if(sq>0) servings.push({n:(p.serving_size||'1 serving').trim(),amt:sq});
+  const pq=num(p.product_quantity); if(pq>0&&pq!==sq) servings.push({n:'Whole package'+(p.quantity?` (${p.quantity})`:''),amt:pq});
+  return {name,brand:(p.brands||'').split(',')[0].trim(),barcode:p.code||'',source:'off',ext:'off:'+p.code,base:liquid?'ml':'g',
+    per100:{kcal,protein:pick('proteins')||0,fat:pick('fat')||0,carbs:pick('carbohydrates')||0,sodium:sodiumG!=null?sodiumG*1000:saltG!=null?saltG*400:0},
+    servings};
+}
+async function offSearch(q){
+  const r=await timedFetch(`${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=${OFF_FIELDS}`);
+  if(!r.ok) throw new Error('off'); const j=await r.json();
+  return (j.products||[]).map(fromOFF).filter(Boolean);
+}
+async function offBarcode(code){
+  const r=await timedFetch(`${OFF}/api/v2/product/${encodeURIComponent(code)}?fields=${OFF_FIELDS}`);
+  if(r.status===404) return null; if(!r.ok) throw new Error('off');
+  const j=await r.json(); return j.status===1||j.product?fromOFF({...j.product,code:j.product&&j.product.code||code}):null;
+}
+const FDC_IDS={kcal:[1008,2047,2048],protein:[1003],fat:[1004],carbs:[1005],sodium:[1093]};
+function fromFDC(x){
+  const byId={}; (x.foodNutrients||[]).forEach(n=>{byId[n.nutrientId]=n.value});
+  const get=k=>{for(const id of FDC_IDS[k]) if(byId[id]!=null) return byId[id]; return null};
+  if(get('kcal')==null) return null;
+  const per100={}; for(const k in FDC_IDS) per100[k]=get(k)||0;
+  const servings=(x.foodMeasures||[]).filter(m=>m.gramWeight>0&&m.disseminationText&&!/not specified/i.test(m.disseminationText))
+    .slice(0,8).map(m=>({n:m.disseminationText,amt:m.gramWeight}));
+  return {name:x.description,brand:'',barcode:'',source:'usda',ext:'usda:'+x.fdcId,base:'g',per100,servings};
+}
+async function fdcSearch(q){
+  const key=state.settings.usdaKey||'DEMO_KEY';
+  const r=await timedFetch(`${FDC}/foods/search?api_key=${encodeURIComponent(key)}&query=${encodeURIComponent(q)}&pageSize=20&dataType=${encodeURIComponent('Foundation,SR Legacy,Survey (FNDDS)')}`);
+  if(!r.ok) throw new Error(r.status===429?'limit':'fdc'); const j=await r.json();
+  return (j.foods||[]).map(fromFDC).filter(Boolean);
+}
+const SRC_NAME={custom:'My food',off:'Open Food Facts',usda:'USDA'};
 
 /* ---------------- Google Drive sync ---------------- */
 // Uses the drive.file scope, so the app can only see the one file it creates.
@@ -322,11 +458,11 @@ async function driveSync(interactive){
     const changed=mergeIn(await driveRead());
     await driveWrite();
     Drive.on=true; lsSet('nh.driveOn',true); Drive.last=new Date();
-    if(changed) render();
+    if(changed&&!sheet) render();
   }catch(e){
     if(e&&e.code!=='expired') Drive.err=(e.type==='popup_closed'||e.error==='access_denied')?null:'Couldn’t reach Google Drive';
     if(interactive&&Drive.err) toast('Couldn’t connect to Google Drive. Everything is still saved in this browser.');
-  }finally{Drive.busy=false; showDriveStatus(); if(tab==='settings') render()}
+  }finally{Drive.busy=false; showDriveStatus(); if(tab==='settings'&&!sheet) render()}
 }
 function driveSoon(){
   if(!driveConfigured()||!Drive.on) return;
@@ -344,7 +480,7 @@ function driveDisconnect(){
 }
 function drivePanel(){
   if(!driveConfigured()) return `<p class="small muted">Google Drive sync isn’t set up for this copy of the app yet.</p>`;
-  if(!Drive.on) return `<p class="small">Keep your food log, weigh-ins and targets in your own Google Drive and pick them up on any device. The app can only see the one file it creates there.</p>
+  if(!Drive.on) return `<p class="small">Keep your food log, weigh-ins, foods and targets in your own Google Drive and pick them up on any device. The app can only see the one file it creates there.</p>
     <div class="row"><button class="btn sm primary" data-act="driveConnect">Connect Google Drive</button></div>`;
   return `<p class="small">${esc(driveStatus()||'')}. Changes save to <b>${esc(DRIVE_FILE)}</b> in your Drive a few seconds after you make them.</p>
     <div class="row">${driveLive()?`<button class="btn sm" data-act="driveSync">Sync now</button>`:`<button class="btn sm primary" data-act="driveSync">Resume sync</button>`}
@@ -353,7 +489,9 @@ function drivePanel(){
 
 /* ---------------- Views ---------------- */
 let tab=(()=>{try{return sessionStorage.getItem('nh.tab')||'today'}catch(_){return 'today'}})();
-let day=todayKey(), pendingDelete=null;
+let day=todayKey(), pendingDelete=null, sheet=null;
+// Food search: what's typed, and the online results for it
+const search={q:'',off:null,usda:null,busy:{off:false,usda:false},err:{},timer:null,seq:0};
 
 function budgetCard(m,eaten,target){
   const left=target-eaten, pct=target>0?Math.min(100,eaten/target*100):0;
@@ -368,6 +506,10 @@ function budgetCard(m,eaten,target){
     <div class="meter" role="img" aria-label="${m.n}: ${fmt(eaten)} of ${fmt(target)} ${m.u}"><i style="width:${pct}%"></i></div>
     <span class="rem">${rem}</span></div>`;
 }
+function entryMeta(e){
+  const amt=e.qty==null?'':unitKind(e.unit)==='serving'?`${fmtQty(e.qty)} × ${esc(e.unitLabel)} · `:`${fmtQty(e.qty)} ${esc(e.unitLabel)} · `;
+  return `${amt}P ${fmt(e.protein)} · F ${fmt(e.fat)} · C ${fmt(e.carbs)} · Na ${fmt(e.sodium)} mg`;
+}
 function viewToday(){
   const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), w=weighinOn(day);
   return `<div class="stack">
@@ -381,17 +523,17 @@ function viewToday(){
     <section class="budget" aria-label="Daily budget">${METRICS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
     <section class="panel stack">
       <h3>Add food</h3>
-      <form class="form" id="quickAdd" autocomplete="off">
-        <label class="field wide">Food<input type="text" name="name" placeholder="e.g. Greek yogurt, 200 g" required></label>
-        ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0"></label>`).join('')}
-        <div class="row" style="grid-column:1/-1"><button class="btn primary" type="submit">Add to ${day===todayKey()?'today':esc(dayLabel(day))}</button>
-          <span class="small muted">Food search and barcode scanning come next.</span></div>
+      <form class="searchbar" id="searchForm" role="search" autocomplete="off">
+        <input type="search" id="foodQ" placeholder="Search foods, e.g. greek yogurt" value="${esc(search.q)}" aria-label="Search foods" enterkeyhint="search">
+        <button class="btn primary" type="button" data-act="scan">Scan barcode</button>
       </form>
+      <div class="row"><button class="btn sm ghost" data-act="quick">Quick add calories</button><button class="btn sm ghost" data-act="newFood">Create a food</button></div>
+      <div id="results" class="results">${resultsHtml()}</div>
     </section>
     <section class="panel stack">
       <h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
       ${list.length?`<div class="entries">${list.map(e=>`<div class="ent">
-        <div><div class="nm">${esc(e.name)}</div><div class="meta">P ${fmt(e.protein)} · F ${fmt(e.fat)} · C ${fmt(e.carbs)} · Na ${fmt(e.sodium)} mg</div></div>
+        <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${entryMeta(e)}</div></div>
         <span class="kc">${fmt(e.kcal)} kcal</span>
         <button class="x-btn" data-rment="${e.id}" aria-label="Remove ${esc(e.name)}">×</button></div>`).join('')}</div>`
         :`<p class="empty">Nothing logged yet.</p>`}
@@ -402,6 +544,49 @@ function viewToday(){
         :weighForm(day,'todayWeigh')}
     </section>
   </div>`;
+}
+function foodRow(f,attr){
+  return `<button class="food" ${attr}><span><span class="fn">${esc(f.name)}</span>${f.brand?` <span class="fb">${esc(f.brand)}</span>`:''}<br><span class="fb">${servingSummary(f)}</span></span>
+    <span class="fk">${fmt(f.per100.kcal)}<br><span class="src-tag">kcal/100${f.base}</span></span></button>`;
+}
+function localMatches(q){
+  const words=q.toLowerCase().split(/\s+/).filter(Boolean);
+  const score=f=>(f.uses||0)+(f.lastUsed?1:0);
+  return state.foods.filter(f=>{const h=`${f.name} ${f.brand||''}`.toLowerCase(); return words.every(w=>h.includes(w))})
+    .sort((a,b)=>score(b)-score(a)||(b.lastUsed||'').localeCompare(a.lastUsed||'')).slice(0,12);
+}
+function resultsHtml(){
+  const q=search.q.trim();
+  if(!q){
+    const recent=[...state.foods].filter(f=>f.lastUsed).sort((a,b)=>b.lastUsed.localeCompare(a.lastUsed)).slice(0,10);
+    return recent.length?`<div class="rgroup"><h4>Recent</h4>${recent.map(f=>foodRow(f,`data-pickfood="${f.id}"`)).join('')}</div>`
+      :`<p class="note">Type a food to search your foods, Open Food Facts and USDA, or scan a barcode.</p>`;
+  }
+  const mine=localMatches(q), seen=new Set(state.foods.map(f=>f.ext).filter(Boolean));
+  const group=(key,title)=>{
+    const list=(search[key]||[]).filter(f=>!seen.has(f.ext));
+    let body;
+    if(search.busy[key]) body=`<p class="note"><span class="spin"></span>Searching ${title}…</p>`;
+    else if(search.err[key]) body=`<p class="note">${esc(search.err[key])}</p>`;
+    else if(search[key]&&!list.length) body=`<p class="note">No matches in ${title}.</p>`;
+    else if(!search[key]) return '';
+    else body=list.slice(0,15).map((f,i)=>foodRow(f,`data-pickext="${key}:${search[key].indexOf(f)}"`)).join('');
+    return `<div class="rgroup"><h4>${title}</h4>${body}</div>`;
+  };
+  return `${mine.length?`<div class="rgroup"><h4>My foods</h4>${mine.map(f=>foodRow(f,`data-pickfood="${f.id}"`)).join('')}</div>`:''}
+    ${group('off','Open Food Facts')}${group('usda','USDA')}
+    <p class="note">Can’t find it? <button class="btn sm ghost" data-act="newFood">Create a food</button></p>`;
+}
+function refreshResults(){const r=document.getElementById('results'); if(r) r.innerHTML=resultsHtml()}
+function runSearch(){
+  const q=search.q.trim(), seq=++search.seq;
+  search.off=search.usda=null; search.err={};
+  if(q.length<2){search.busy={off:false,usda:false}; refreshResults(); return}
+  search.busy={off:true,usda:true}; refreshResults();
+  const go=(key,fn)=>fn(q).then(r=>{if(seq===search.seq) search[key]=r})
+    .catch(e=>{if(seq===search.seq) search.err[key]=e.message==='limit'?'USDA search limit reached for now. Add your own free USDA key in Settings.':`Couldn’t reach ${key==='off'?'Open Food Facts':'USDA'}.`})
+    .finally(()=>{if(seq===search.seq){search.busy[key]=false; refreshResults()}});
+  go('off',offSearch); go('usda',fdcSearch);
 }
 function weighForm(d,id){
   return `<form class="form" id="${id}" autocomplete="off">
@@ -433,8 +618,23 @@ function viewWeight(){
     </section>
   </div>`;
 }
+function viewFoods(){
+  const list=[...state.foods].sort((a,b)=>a.name.localeCompare(b.name));
+  return `<div class="stack">
+    <div class="row" style="justify-content:space-between"><h2>My foods</h2><button class="btn sm primary" data-act="newFood">Create a food</button></div>
+    <p class="small muted">Foods you’ve created or logged. Each remembers the amount and unit you last used.</p>
+    <section class="panel">${list.length?list.map(f=>`<div class="ent">
+        <div><button class="nm" data-editfood="${f.id}">${esc(f.name)}</button>${f.brand?` <span class="fb small muted">${esc(f.brand)}</span>`:''}
+          <div class="meta">${per100Summary(f)}</div></div>
+        <span class="src-tag">${esc(SRC_NAME[f.source]||'')}${f.barcode?` · ${esc(f.barcode)}`:''}</span>
+        <button class="x-btn" data-rmfood="${f.id}" aria-label="Remove ${esc(f.name)}">×</button></div>`).join('')
+      :`<p class="empty">No foods yet. Log something from Today, or create one here.</p>`}</section>
+  </div>`;
+}
 function viewSettings(){
-  const t=targetsFor(todayKey());
+  const t=targetsFor(todayKey()), p=state.settings.unitPrefs;
+  const unitSeg=(kind,label)=>`<div class="row"><span class="small" style="min-width:110px">${label}</span>
+    <div class="seg" role="group" aria-label="${label}">${Object.keys(UNITS).filter(u=>UNITS[u].kind===kind&&u!=='kg'&&u!=='l').map(u=>`<button data-unitpref="${kind}:${u}" aria-pressed="${p[kind]===u}">${UNITS[u].n}</button>`).join('')}</div></div>`;
   return `<div class="stack">
     <h2>Settings</h2>
     <section class="panel stack"><h3>Daily targets</h3>
@@ -445,8 +645,14 @@ function viewSettings(){
       </form>
     </section>
     <section class="panel stack"><h3>Units</h3>
-      <div class="row"><span class="small">Body weight</span>
+      <div class="row"><span class="small" style="min-width:110px">Body weight</span>
         <div class="seg" role="group" aria-label="Body weight unit">${['lb','kg'].map(u=>`<button data-wunit="${u}" aria-pressed="${wUnit()===u}">${u}</button>`).join('')}</div></div>
+      ${unitSeg('mass','Food by weight')}${unitSeg('volume','Food by volume')}
+      <p class="small muted">Food units also follow whatever you last picked when logging.</p>
+    </section>
+    <section class="panel stack"><h3>Food search</h3>
+      <p class="small">USDA search uses a shared demo key with a low hourly limit. A free personal key from <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener">fdc.nal.usda.gov</a> removes it.</p>
+      <form class="row" id="usdaForm" autocomplete="off"><input type="text" name="key" value="${esc(state.settings.usdaKey)}" placeholder="USDA API key (optional)" aria-label="USDA API key" style="flex:1 1 240px"><button class="btn sm" type="submit">Save key</button></form>
     </section>
     <section class="panel stack"><h3>Google Drive</h3>${drivePanel()}</section>
     <section class="panel stack"><h3>Backup &amp; reset</h3>
@@ -457,12 +663,143 @@ function viewSettings(){
     </section>
   </div>`;
 }
-let renderedToday=todayKey();
-function render(){
-  renderedToday=todayKey();
-  document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));
-  const v={today:viewToday,weight:viewWeight,settings:viewSettings}[tab]||viewToday;
-  document.getElementById('main').innerHTML=v();
+
+/* ---------------- Sheets ---------------- */
+// sheet: {type:'food', food, entryId?} | {type:'scan'} | {type:'quick', entryId?} | {type:'editFood', food, then?}
+function sheetFood(){
+  const {food:f,entryId}=sheet, e=entryId&&state.entries.find(x=>x.id===entryId);
+  const p=e&&e.unit&&unitOptions(f).includes(e.unit)?{unit:e.unit,qty:e.qty}:defaultPortion(f);
+  return `<h2>${esc(f.name)}</h2>
+    ${f.brand||f.source!=='custom'?`<p class="small muted">${esc(f.brand||'')}${f.brand?' · ':''}${esc(SRC_NAME[f.source]||'')}</p>`:''}
+    <form class="stack" id="portionForm" autocomplete="off">
+      <div class="qty">
+        <label class="field">Amount<input type="number" id="pQty" name="qty" inputmode="decimal" step="any" min="0" value="${p.qty}" required></label>
+        <label class="field">Unit<select id="pUnit" name="unit" data-prev="${esc(p.unit)}">${unitOptions(f).map(u=>`<option value="${esc(u)}"${u===p.unit?' selected':''}>${esc(unitLabel(f,u))}</option>`).join('')}</select></label>
+      </div>
+      <div class="preview" id="pPreview">${previewHtml(f,p.qty,p.unit)}</div>
+      <div class="row"><button class="btn primary big" type="submit">${e?'Save':'Add to '+(day===todayKey()?'today':esc(dayLabel(day)))}</button>
+        ${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
+    </form>
+    <p class="note">${per100Summary(f)}${f.servings&&f.servings.length?'':'. No serving sizes listed, so log it by weight or volume.'}</p>
+    <div class="row"><button class="btn sm ghost" data-act="editThisFood">Edit food</button></div>`;
+}
+function previewHtml(f,qty,unit){
+  const n=nutrientsFor(f,baseAmount(f,num(qty)||0,unit));
+  return METRICS.map(m=>`<div><b>${fmt(n[m.k])}</b><span>${m.s}${m.u==='mg'?' mg':m.u==='g'?' g':''}</span></div>`).join('');
+}
+function sheetQuick(){
+  const e=sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
+  return `<h2>${e?'Edit entry':'Quick add'}</h2>
+    <p class="small muted">Log nutrition directly, for meals out or anything without a food to match.</p>
+    <form class="form" id="quickAdd" autocomplete="off">
+      <label class="field wide">Name<input type="text" name="name" value="${esc(e?e.name:'')}" placeholder="e.g. Lunch out"></label>
+      ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${e?+fmtQty(e[m.k]||0):''}"></label>`).join('')}
+      <div class="row full"><button class="btn primary" type="submit">${e?'Save':'Add'}</button>${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
+    </form>`;
+}
+function sheetEditFood(){
+  const f=sheet.food||{}, s=(f.servings||[])[0], base=f.base||'g', amt=s?s.amt:100;
+  const n=f.per100?nutrientsFor(f,amt):{};
+  return `<h2>${f.id?'Edit food':'Create a food'}</h2>
+    <p class="small muted">Copy the nutrition from the label for one serving.</p>
+    <form class="form" id="foodForm" autocomplete="off">
+      <label class="field wide">Name<input type="text" name="name" value="${esc(f.name||'')}" required></label>
+      <label class="field">Brand<input type="text" name="brand" value="${esc(f.brand||'')}"></label>
+      <label class="field">Barcode<input type="text" name="barcode" inputmode="numeric" value="${esc(f.barcode||'')}"></label>
+      <label class="field wide">Serving name<input type="text" name="sname" value="${esc(s?s.n:'')}" placeholder="e.g. 1 bar, 2 slices"></label>
+      <label class="field">Serving size<input type="number" name="samt" inputmode="decimal" step="any" min="0" value="${+fmtQty(amt)}" required></label>
+      <label class="field">Unit<select name="base"><option value="g"${base==='g'?' selected':''}>g</option><option value="ml"${base==='ml'?' selected':''}>ml</option></select></label>
+      ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${n[m.k]!=null?+fmtQty(n[m.k]):''}"${m.k==='kcal'?' required':''}></label>`).join('')}
+      <div class="row full"><button class="btn primary" type="submit">Save food</button></div>
+    </form>`;
+}
+function sheetScan(){
+  return `<h2>Scan a barcode</h2>
+    <div class="scanbox"><video id="scanVideo" playsinline muted></video></div>
+    <p class="note" id="scanNote">Point the camera at the barcode.</p>
+    <form class="row" id="barcodeForm" autocomplete="off"><input type="text" name="code" inputmode="numeric" placeholder="Or type the barcode number" aria-label="Barcode number" style="flex:1 1 200px"><button class="btn sm" type="submit">Look up</button></form>`;
+}
+function renderSheet(){
+  const h=document.getElementById('sheetHost');
+  if(!sheet){h.innerHTML='';return}
+  const body={food:sheetFood,quick:sheetQuick,editFood:sheetEditFood,scan:sheetScan}[sheet.type]();
+  h.innerHTML=`<div class="scrim" data-close="1"></div><div class="drawer" role="dialog" aria-modal="true"><button class="x" data-close="1" aria-label="Close">×</button>${body}</div>`;
+  const first=h.querySelector('#pQty,#quickAdd input,#foodForm input');
+  if(first) first.focus({preventScroll:true});
+  if(sheet.type==='scan') startScan();
+}
+function openSheet(s){stopScan(); sheet=s; renderSheet()}
+function closeSheet(){stopScan(); sheet=null; renderSheet()}
+
+/* ---------------- Barcode scanning ---------------- */
+// Native BarcodeDetector where the browser has it (Chrome on Android); ZXing from a CDN elsewhere (iPhone Safari).
+const scan={stream:null,timer:null,zx:null,busy:false};
+function loadZxing(){return new Promise((res,rej)=>{
+  if(window.ZXingBrowser) return res(window.ZXingBrowser);
+  const sc=document.createElement('script'); sc.src='https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
+  sc.onload=()=>window.ZXingBrowser?res(window.ZXingBrowser):rej(new Error('zxing')); sc.onerror=()=>rej(new Error('zxing')); document.head.appendChild(sc)})}
+async function startScan(){
+  const v=document.getElementById('scanVideo'), note=document.getElementById('scanNote');
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){note.textContent='This browser can’t use the camera. Type the barcode number instead.';return}
+  try{
+    if('BarcodeDetector' in window){
+      const fmts=await BarcodeDetector.getSupportedFormats().catch(()=>[]);
+      const want=['ean_13','ean_8','upc_a','upc_e'].filter(f=>fmts.includes(f));
+      if(want.length){
+        const det=new BarcodeDetector({formats:want});
+        scan.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+        if(!sheet||sheet.type!=='scan'){stopScan();return}
+        v.srcObject=scan.stream; await v.play();
+        scan.timer=setInterval(async()=>{if(scan.busy||v.readyState<2) return; try{const r=await det.detect(v); if(r[0]) gotBarcode(r[0].rawValue)}catch(_){}},250);
+        return;
+      }
+    }
+    const Z=await loadZxing(); if(!sheet||sheet.type!=='scan') return;
+    const reader=new Z.BrowserMultiFormatReader();
+    scan.zx=await reader.decodeFromConstraints({video:{facingMode:'environment'}},v,r=>{if(r&&!scan.busy) gotBarcode(r.getText())});
+    if(!sheet||sheet.type!=='scan') stopScan();
+  }catch(e){
+    if(note) note.textContent=e&&e.name==='NotAllowedError'?'Camera access was blocked. Allow it in the browser, or type the barcode number.':'Couldn’t start the camera. Type the barcode number instead.';
+  }
+}
+function stopScan(){
+  clearInterval(scan.timer); scan.timer=null; scan.busy=false;
+  if(scan.zx){try{scan.zx.stop()}catch(_){} scan.zx=null}
+  if(scan.stream){scan.stream.getTracks().forEach(t=>t.stop()); scan.stream=null}
+}
+async function gotBarcode(code){
+  code=String(code||'').replace(/\D/g,''); if(!code) return;
+  scan.busy=true; if(navigator.vibrate) navigator.vibrate(40);
+  const note=document.getElementById('scanNote'); if(note) note.innerHTML=`<span class="spin"></span>Looking up ${esc(code)}…`;
+  const mine=foodByBarcode(code);
+  if(mine){openSheet({type:'food',food:mine});return}
+  try{
+    const f=await offBarcode(code);
+    if(!sheet||sheet.type!=='scan') return;
+    if(f){openSheet({type:'food',food:foodByExt(f.ext)||f});return}
+    toast('Not in Open Food Facts. Add it from the label.');
+    openSheet({type:'editFood',food:{barcode:code},then:'log'});
+  }catch(_){
+    scan.busy=false; if(note) note.textContent=`Couldn’t reach Open Food Facts to look up ${code}. Check your connection and try again.`;
+  }
+}
+
+/* ---------------- Logging ---------------- */
+// Online results become library foods the first time they're logged
+function keepFood(f){
+  if(f.id) return f;
+  const have=foodByExt(f.ext); if(have) return have;
+  const rec={...f,id:'f'+uid6(),uses:0}; putRecord('foods',rec); return rec;
+}
+function logPortion(f,qty,unit,entryId){
+  f=keepFood(f);
+  const amt=baseAmount(f,qty,unit), n=nutrientsFor(f,amt), old=entryId&&state.entries.find(x=>x.id===entryId);
+  const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:nowIso(),foodId:f.id,name:f.name+(f.brand?` (${f.brand})`:''),
+    qty,unit,unitLabel:unitLabel(f,unit),amt,...n};
+  putRecord('entries',rec);
+  Object.assign(f,{lastUnit:unit,lastQty:qty,lastAmt:amt,lastUsed:nowIso(),uses:(f.uses||0)+(old?0:1)}); putRecord('foods',f);
+  const k=unitKind(unit); if(k!=='serving'&&state.settings.unitPrefs[k]!==unit){state.settings.unitPrefs[k]=unit; touchSettings()}
+  return rec;
 }
 
 /* ---------------- Events ---------------- */
@@ -477,15 +814,42 @@ function saveWeighin(f){
 document.addEventListener('submit',e=>{
   e.preventDefault();
   const f=new FormData(e.target), id=e.target.id;
+  if(id==='searchForm'){clearTimeout(search.timer); runSearch(); return}
+  if(id==='portionForm'){
+    const qty=num(f.get('qty')), unit=f.get('unit'); if(!qty||qty<=0){toast('Enter an amount.');return}
+    const rec=logPortion(sheet.food,qty,unit,sheet.entryId);
+    toast(sheet.entryId?'Entry updated':`Added ${rec.name}`); closeSheet(); render(); return}
   if(id==='quickAdd'){
-    const name=String(f.get('name')||'').trim(); if(!name){toast('Name the food.');return}
-    const rec={id:'e'+uid6(),date:day,ts:nowIso(),name};
+    const old=sheet&&sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
+    const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:nowIso(),name:String(f.get('name')||'').trim()||'Quick add'};
     METRICS.forEach(m=>rec[m.k]=num(f.get(m.k))||0);
-    putRecord('entries',rec); toast(`Added ${name}`); render(); document.querySelector('#quickAdd [name=name]').focus(); return}
+    if(!METRICS.some(m=>rec[m.k])){toast('Enter some nutrition.');return}
+    putRecord('entries',rec); toast(old?'Entry updated':`Added ${rec.name}`); closeSheet(); render(); return}
+  if(id==='foodForm'){
+    const name=String(f.get('name')||'').trim(), samt=num(f.get('samt')), base=f.get('base')==='ml'?'ml':'g';
+    if(!name||!samt||samt<=0){toast('Enter a name and serving size.');return}
+    const per100={}; METRICS.forEach(m=>per100[m.k]=(num(f.get(m.k))||0)*100/samt);
+    const old=sheet.food&&sheet.food.id?foodById(sheet.food.id):null;
+    const sname=String(f.get('sname')||'').trim()||`${fmtQty(samt)} ${base}`;
+    const rest=old&&old.servings?old.servings.slice(1):[];
+    const rec={...(old||{}),id:old?old.id:'f'+uid6(),name,brand:String(f.get('brand')||'').trim(),barcode:String(f.get('barcode')||'').replace(/\D/g,''),
+      source:'custom',base,per100,servings:[{n:sname,amt:samt},...rest],uses:old?old.uses||0:0};
+    if(rec.lastUnit&&!unitOptions(rec).includes(rec.lastUnit)){delete rec.lastUnit; delete rec.lastQty; delete rec.lastAmt}
+    putRecord('foods',rec);
+    toast(old?'Food saved':`Created ${name}`);
+    if(sheet.then==='log') openSheet({type:'food',food:rec,entryId:sheet.entryId}); else closeSheet();
+    render(); return}
+  if(id==='barcodeForm'){gotBarcode(f.get('code')); return}
   if(id==='todayWeigh'||id==='weighForm'){if(saveWeighin(f)) render(); return}
   if(id==='targetsForm'){
     const t={from:todayKey()}; for(const m of METRICS){const v=num(f.get(m.k)); if(v==null||v<0){toast(`Enter a ${m.n.toLowerCase()} target.`);return} t[m.k]=v}
     state.settings.targets=state.settings.targets.filter(x=>x.from!==t.from).concat(t); touchSettings(); toast('Targets saved'); render(); return}
+  if(id==='usdaForm'){state.settings.usdaKey=String(f.get('key')||'').trim(); touchSettings(); toast('USDA key saved'); return}
+});
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(t.id==='foodQ'){search.q=t.value; clearTimeout(search.timer); search.seq++; search.off=search.usda=null; search.err={}; search.busy={off:false,usda:false}; refreshResults(); search.timer=setTimeout(runSearch,650); return}
+  if(t.id==='pQty'&&sheet&&sheet.type==='food'){document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,t.value,document.getElementById('pUnit').value)}
 });
 // Google tokens last an hour. Renew on a tap when it's close to running out: a token request needs a tap,
 // and for an account that already agreed Google's window closes by itself.
@@ -495,15 +859,27 @@ document.addEventListener('click',e=>{
   Drive.lastAsk=Date.now(); driveToken().then(()=>driveSync(false)).catch(()=>showDriveStatus());
 },true);
 document.addEventListener('click',async e=>{
-  const t=e.target.closest('button'); if(!t||t.getAttribute('type')==='submit') return;
+  const t=e.target.closest('button,[data-close]'); if(!t||t.getAttribute('type')==='submit') return;
   const d=t.dataset;
+  if(d.close){closeSheet();return}
   if(d.tab){tab=d.tab;pendingDelete=null;try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();window.scrollTo(0,0);return}
   if(d.goto){tab=d.goto;render();window.scrollTo(0,0);return}
   if(d.day){day=addDays(day,+d.day);render();return}
   if(d.act==='goToday'){day=todayKey();render();return}
-  if(d.rment){const x=state.entries.find(e=>e.id===d.rment); dropRecord('entries',d.rment); toast(`Removed ${x?x.name:'entry'}`); render(); return}
+  if(d.pickfood){openSheet({type:'food',food:foodById(d.pickfood)});return}
+  if(d.pickext){const [k,i]=d.pickext.split(':'), f=(search[k]||[])[+i]; if(f) openSheet({type:'food',food:foodByExt(f.ext)||f}); return}
+  if(d.editent){const x=state.entries.find(e=>e.id===d.editent), f=x&&x.foodId&&foodById(x.foodId);
+    openSheet(f?{type:'food',food:f,entryId:x.id}:{type:'quick',entryId:d.editent}); return}
+  if(d.rment){const x=state.entries.find(e=>e.id===d.rment); dropRecord('entries',d.rment); toast(`Removed ${x?x.name:'entry'}`); if(sheet) closeSheet(); render(); return}
+  if(d.act==='scan'){openSheet({type:'scan'});return}
+  if(d.act==='quick'){openSheet({type:'quick'});return}
+  if(d.act==='newFood'){const log=tab==='today'; openSheet({type:'editFood',food:{name:log?search.q.trim():''},then:log?'log':null});return}
+  if(d.act==='editThisFood'){openSheet({type:'editFood',food:sheet.food,then:'log',entryId:sheet.entryId});return}
+  if(d.editfood){openSheet({type:'editFood',food:foodById(d.editfood)});return}
+  if(d.rmfood){const x=foodById(d.rmfood); dropRecord('foods',d.rmfood); toast(`Removed ${x?x.name:'food'}. Logged entries stay.`); render(); return}
   if(d.rmweigh){dropRecord('weighins',d.rmweigh); toast('Weigh-in removed'); render(); return}
   if(d.wunit){state.settings.weightUnit=d.wunit; touchSettings(); render(); return}
+  if(d.unitpref){const [k,u]=d.unitpref.split(':'); state.settings.unitPrefs[k]=u; touchSettings(); render(); return}
   if(d.act==='resetAsk'){pendingDelete='ALL';render();return}
   if(d.act==='resetNo'){pendingDelete=null;render();return}
   if(d.act==='resetYes'){
@@ -517,9 +893,17 @@ document.addEventListener('click',async e=>{
     catch(_){try{await navigator.clipboard.writeText(data);toast('Backup copied to clipboard')}catch(__){toast('Export isn’t available here')}}
     return}
 });
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sheet) closeSheet()});
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
+  // Switching units keeps the same amount of food: 100 g becomes 3.53 oz
+  if(t.id==='pUnit'&&sheet&&sheet.type==='food'){
+    const q=document.getElementById('pQty');
+    const amt=baseAmount(sheet.food,num(q.value)||0,t.dataset.prev), one=baseAmount(sheet.food,1,t.value);
+    if(amt>0&&one>0) q.value=fmtQty(amt/one);
+    t.dataset.prev=t.value;
+    document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,q.value,t.value); return}
   if(t.id==='importFile'&&t.files[0]){
     try{const j=JSON.parse(await t.files[0].text()); if(j.app!=='nutrition-helper') throw 0;
       const n=state.entries.length+state.weighins.length;
@@ -530,6 +914,14 @@ document.addEventListener('change',async e=>{
   }
 });
 
+let renderedToday=todayKey();
+function render(){
+  renderedToday=todayKey();
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));
+  const v={today:viewToday,weight:viewWeight,foods:viewFoods,settings:viewSettings}[tab]||viewToday;
+  document.getElementById('main').innerHTML=v();
+}
+
 render();
 showDriveStatus();
 if(driveConfigured()&&Drive.on){
@@ -538,7 +930,7 @@ if(driveConfigured()&&Drive.on){
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&driveLive()) driveSync(false)});
 }
 // The day rolls over while the app stays open on a phone
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'||day!==renderedToday||day===todayKey()) return; day=todayKey(); render()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'||day!==renderedToday||day===todayKey()||sheet) return; day=todayKey(); render()});
 </script>
 
 <script src="https://petravanta.github.io/general/shared/hub-link.js" defer></script>
