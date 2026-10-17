@@ -211,6 +211,9 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .tbl th,.tbl td{text-align:right;padding:4px 8px;border-bottom:1px solid var(--line)}
 .tbl th:first-child,.tbl td:first-child{text-align:left}
 details summary{cursor:pointer}
+.allnut h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:12px 0 4px}
+.allnut table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+.allnut td{padding:3px 0;border-bottom:1px solid var(--line)} .allnut td:last-child{text-align:right;font-family:var(--f-mono)}
 .paces{display:flex;flex-direction:column;gap:6px}
 .pace{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}
 .pace:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
@@ -260,6 +263,80 @@ const METRICS=[
   {k:'sodium',n:'Sodium',s:'Sodium',u:'mg',kind:'ceiling'}];
 const DEFAULT_TARGETS={kcal:2200,protein:160,fat:70,carbs:230,sodium:2300};
 const KG_PER_LB=0.45359237;
+
+/* ---------------- Nutrients ---------------- */
+// Foods keep every nutrient their source reports, per 100 g or ml. The five metrics above drive the budget;
+// the rest are kept for detail views and reports. Nutrients in this catalog are stored under its keys and
+// snapshotted on each logged entry (entry.more). Anything else a source reports is kept on the food under
+// 'fdc:<id>', 'off:<name>' or 'mf:<name>' with its name and unit in food.nmeta, and can be worked out for an
+// entry from its foodId and amt.
+const NUTRIENTS=[
+  ['kcal','Calories','kcal','Energy',[1008,2047,2048]],
+  ['protein','Protein','g','Macros',[1003],'proteins'],
+  ['fat','Fat','g','Macros',[1004],'fat'],
+  ['carbs','Carbs','g','Macros',[1005],'carbohydrates'],
+  ['fiber','Fiber','g','Carbs',[1079],'fiber'],
+  ['sugars','Sugars','g','Carbs',[2000,1063],'sugars'],
+  ['addedSugars','Added sugars','g','Carbs',[1235],'added-sugars'],
+  ['starch','Starch','g','Carbs',[1009],'starch'],
+  ['satFat','Saturated fat','g','Fats',[1258],'saturated-fat'],
+  ['monoFat','Monounsaturated fat','g','Fats',[1292],'monounsaturated-fat'],
+  ['polyFat','Polyunsaturated fat','g','Fats',[1293],'polyunsaturated-fat'],
+  ['transFat','Trans fat','g','Fats',[1257],'trans-fat'],
+  ['omega3','Omega-3','g','Fats',[],'omega-3-fat'],
+  ['ala','Omega-3 ALA','g','Fats',[1404],'alpha-linolenic-acid'],
+  ['epa','Omega-3 EPA','g','Fats',[1278],'eicosapentaenoic-acid'],
+  ['dha','Omega-3 DHA','g','Fats',[1272],'docosahexaenoic-acid'],
+  ['omega6','Omega-6','g','Fats',[],'omega-6-fat'],
+  ['cholesterol','Cholesterol','mg','Fats',[1253],'cholesterol'],
+  ['sodium','Sodium','mg','Minerals',[1093],'sodium'],
+  ['potassium','Potassium','mg','Minerals',[1092],'potassium'],
+  ['calcium','Calcium','mg','Minerals',[1087],'calcium'],
+  ['iron','Iron','mg','Minerals',[1089],'iron'],
+  ['magnesium','Magnesium','mg','Minerals',[1090],'magnesium'],
+  ['phosphorus','Phosphorus','mg','Minerals',[1091],'phosphorus'],
+  ['zinc','Zinc','mg','Minerals',[1095],'zinc'],
+  ['copper','Copper','mg','Minerals',[1098],'copper'],
+  ['manganese','Manganese','mg','Minerals',[1101],'manganese'],
+  ['selenium','Selenium','µg','Minerals',[1103],'selenium'],
+  ['iodine','Iodine','µg','Minerals',[1100],'iodine'],
+  ['chloride','Chloride','mg','Minerals',[1088],'chloride'],
+  ['chromium','Chromium','µg','Minerals',[1096],'chromium'],
+  ['molybdenum','Molybdenum','µg','Minerals',[1102],'molybdenum'],
+  ['fluoride','Fluoride','µg','Minerals',[1099],'fluoride'],
+  ['vitA','Vitamin A','µg','Vitamins',[1106],'vitamin-a'],
+  ['vitC','Vitamin C','mg','Vitamins',[1162],'vitamin-c'],
+  ['vitD','Vitamin D','µg','Vitamins',[1114],'vitamin-d'],
+  ['vitE','Vitamin E','mg','Vitamins',[1109],'vitamin-e'],
+  ['vitK','Vitamin K','µg','Vitamins',[1185],'vitamin-k'],
+  ['thiamin','Thiamin (B1)','mg','Vitamins',[1165],'vitamin-b1'],
+  ['riboflavin','Riboflavin (B2)','mg','Vitamins',[1166],'vitamin-b2'],
+  ['niacin','Niacin (B3)','mg','Vitamins',[1167],'vitamin-pp'],
+  ['pantothenic','Pantothenic acid (B5)','mg','Vitamins',[1170],'pantothenic-acid'],
+  ['vitB6','Vitamin B6','mg','Vitamins',[1175],'vitamin-b6'],
+  ['biotin','Biotin (B7)','µg','Vitamins',[1176],'biotin'],
+  ['folate','Folate (B9)','µg','Vitamins',[1190,1177],'vitamin-b9'],
+  ['vitB12','Vitamin B12','µg','Vitamins',[1178],'vitamin-b12'],
+  ['choline','Choline','mg','Vitamins',[1180],'choline'],
+  ['water','Water','g','Other',[1051],'water'],
+  ['alcohol','Alcohol','g','Other',[1018]],
+  ['caffeine','Caffeine','mg','Other',[1057],'caffeine'],
+].map(([k,n,u,g,fdc,off])=>({k,n,u,g,fdc,off}));
+const NUT=Object.fromEntries(NUTRIENTS.map(x=>[x.k,x]));
+const NUT_BY_FDC={}; NUTRIENTS.forEach(x=>x.fdc.forEach((id,i)=>{if(!(id in NUT_BY_FDC)) NUT_BY_FDC[id]={k:x.k,rank:i}}));
+const NUT_BY_OFF=Object.fromEntries(NUTRIENTS.filter(x=>x.off).map(x=>[x.off,x.k]));
+const MASS_IN_G={g:1,mg:1e-3,'µg':1e-6,ug:1e-6,mcg:1e-6};
+const normUnit=u=>{u=String(u||'').trim().toLowerCase(); return u==='ug'||u==='mcg'||u==='μg'?'µg':u};
+// Convert between g, mg and µg; any other unit only passes through unchanged
+function convertMass(v,from,to){from=normUnit(from); to=normUnit(to); if(from===to) return v; return from in MASS_IN_G&&to in MASS_IN_G?v*MASS_IN_G[from]/MASS_IN_G[to]:null}
+const nutName=(k,meta)=>NUT[k]?NUT[k].n:(meta&&meta[k]&&meta[k].n)||k;
+const nutUnit=(k,meta)=>NUT[k]?NUT[k].u:(meta&&meta[k]&&meta[k].u)||'';
+const sig3=v=>+(+v).toPrecision(3);
+const isMetric=k=>METRICS.some(m=>m.k===k);
+// The catalog nutrients beyond the five metrics, for an entry's snapshot (zeros and unknowns left out to keep entries small)
+function moreOf(n){const o={}; for(const k in n) if(NUT[k]&&!isMetric(k)&&n[k]) o[k]=sig3(n[k]); return o}
+// All catalog nutrients logged on a day, for detail views and reports
+function dayNutrients(day){const t={}; for(const e of entriesFor(day)){METRICS.forEach(m=>t[m.k]=(t[m.k]||0)+(Number(e[m.k])||0)); for(const k in e.more||{}) t[k]=(t[k]||0)+e.more[k]} return t}
 
 /* ---------------- Units ---------------- */
 // Foods keep nutrition per 100 g (or per 100 ml for drinks). Amounts convert through grams or millilitres;
@@ -341,7 +418,8 @@ const weighinsSorted=()=>[...state.weighins].sort((a,b)=>a.date<b.date?1:-1);
 const weighinOn=day=>state.weighins.find(w=>w.date===day);
 
 /* ---------------- Foods & amounts ---------------- */
-// A food: {id, name, brand, barcode, source:'custom'|'off'|'usda', ext, base:'g'|'ml', per100:{kcal,protein,fat,carbs,sodium},
+// A food: {id, name, brand, barcode, source:'custom'|'off'|'usda', ext, base:'g'|'ml', per100:{kcal,protein,fat,carbs,sodium,…every other nutrient},
+//          nmeta:{key:{n,u}} for nutrients outside the catalog,
 //          density (g per ml, optional), servings:[{n:'1 bar', amt: in base units}], lastUnit, lastQty, lastAmt, uses, lastUsed}
 const foodById=id=>state.foods.find(f=>f.id===id);
 const foodByExt=ext=>ext&&state.foods.find(f=>f.ext===ext);
@@ -365,7 +443,7 @@ function baseAmount(f,qty,unit){
   if(U.kind===baseKind) return v;
   return U.kind==='mass'?v/(f.density||1):v*(f.density||1);
 }
-function nutrientsFor(f,amt){const o={}; METRICS.forEach(m=>o[m.k]=(Number(f.per100[m.k])||0)*amt/100); return o}
+function nutrientsFor(f,amt){const o={}; METRICS.forEach(m=>o[m.k]=0); for(const k in f.per100) o[k]=(Number(f.per100[k])||0)*amt/100; return o}
 // Sticky units: open a food in the unit it was last logged in, but switch weight or volume units to the ones last used anywhere
 function defaultPortion(f){
   const opts=unitOptions(f), prefs=state.settings.unitPrefs;
@@ -388,6 +466,21 @@ function servingSummary(f){
 const OFF='https://world.openfoodfacts.org', FDC='https://api.nal.usda.gov/fdc/v1';
 const OFF_FIELDS='code,product_name,generic_name,brands,nutriments,serving_size,serving_quantity,serving_quantity_unit,quantity,product_quantity,product_quantity_unit';
 function timedFetch(url,ms=12000){const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t))}
+// Open Food Facts gives nutrients per 100 g in grams, with the label's unit in <name>_unit
+const OFF_SKIP=/^(energy|nova|nutrition-score|nutriscore|carbon-footprint|fruits-vegetables|cocoa|collagen|ph$|salt$|sodium$|proteins$|fat$|carbohydrates$|alcohol$)/;
+function offExtras(n,pick){
+  const per100={}, nmeta={};
+  const names=new Set(Object.keys(n).map(k=>k.match(/^(.+?)_(100g|serving)$/)).filter(Boolean).map(m=>m[1]));
+  for(const name of names){
+    if(OFF_SKIP.test(name)) continue;
+    const v=pick(name); if(v==null||v<0) continue;
+    const k=NUT_BY_OFF[name];
+    if(k){const c=convertMass(v,'g',NUT[k].u); if(c!=null) per100[k]=c; continue}
+    const u=normUnit(n[name+'_unit']); if(!(u in MASS_IN_G)) continue;
+    per100['off:'+name]=convertMass(v,'g',u); nmeta['off:'+name]={n:name.replace(/-/g,' ').replace(/^./,c=>c.toUpperCase()),u};
+  }
+  return {per100,nmeta};
+}
 function fromOFF(p){
   if(!p) return null;
   const n=p.nutriments||{}, name=(p.product_name||p.generic_name||'').trim(); if(!name) return null;
@@ -395,12 +488,12 @@ function fromOFF(p){
   const pick=k=>{const v=num(n[k+'_100g']); if(v!=null) return v; const s=num(n[k+'_serving']); return s!=null&&sq?s*100/sq:null};
   let kcal=pick('energy-kcal'); if(kcal==null){const kj=pick('energy'); if(kj!=null) kcal=kj/4.184}
   if(kcal==null) return null;
-  const sodiumG=pick('sodium'), saltG=pick('salt');
+  const sodiumG=pick('sodium'), saltG=pick('salt'), extra=offExtras(n,pick);
   const servings=[]; if(sq>0) servings.push({n:(p.serving_size||'1 serving').trim(),amt:sq});
   const pq=num(p.product_quantity); if(pq>0&&pq!==sq) servings.push({n:'Whole package'+(p.quantity?` (${p.quantity})`:''),amt:pq});
   return {name,brand:(p.brands||'').split(',')[0].trim(),barcode:p.code||'',source:'off',ext:'off:'+p.code,base:liquid?'ml':'g',
-    per100:{kcal,protein:pick('proteins')||0,fat:pick('fat')||0,carbs:pick('carbohydrates')||0,sodium:sodiumG!=null?sodiumG*1000:saltG!=null?saltG*400:0},
-    servings};
+    per100:{...extra.per100,kcal,protein:pick('proteins')||0,fat:pick('fat')||0,carbs:pick('carbohydrates')||0,sodium:sodiumG!=null?sodiumG*1000:saltG!=null?saltG*400:0},
+    ...(Object.keys(extra.nmeta).length?{nmeta:extra.nmeta}:{}),servings};
 }
 async function offSearch(q){
   const r=await timedFetch(`${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=${OFF_FIELDS}`);
@@ -412,15 +505,27 @@ async function offBarcode(code){
   if(r.status===404) return null; if(!r.ok) throw new Error('off');
   const j=await r.json(); return j.status===1||j.product?fromOFF({...j.product,code:j.product&&j.product.code||code}):null;
 }
-const FDC_IDS={kcal:[1008,2047,2048],protein:[1003],fat:[1004],carbs:[1005],sodium:[1093]};
+// FoodData Central lists every nutrient it has for a food, each with its id, name and unit
+const FDC_SKIP=new Set([1062,2045]);   // energy in kJ, and FDC's proximates heading
 function fromFDC(x){
-  const byId={}; (x.foodNutrients||[]).forEach(n=>{byId[n.nutrientId]=n.value});
-  const get=k=>{for(const id of FDC_IDS[k]) if(byId[id]!=null) return byId[id]; return null};
-  if(get('kcal')==null) return null;
-  const per100={}; for(const k in FDC_IDS) per100[k]=get(k)||0;
+  const per100={}, nmeta={}, rank={};
+  for(const n of x.foodNutrients||[]){
+    const id=n.nutrientId, v=num(n.value); if(v==null||FDC_SKIP.has(id)) continue;
+    const c=NUT_BY_FDC[id];
+    if(c){
+      if(c.k in rank&&rank[c.k]<=c.rank) continue;
+      const val=c.k==='kcal'?(normUnit(n.unitName)==='kj'?v/4.184:v):convertMass(v,n.unitName,NUT[c.k].u);
+      if(val!=null){per100[c.k]=val; rank[c.k]=c.rank}
+      continue;
+    }
+    if(!n.nutrientName) continue;
+    per100['fdc:'+id]=v; nmeta['fdc:'+id]={n:n.nutrientName,u:normUnit(n.unitName)};
+  }
+  if(per100.kcal==null) return null;
+  METRICS.forEach(m=>{if(per100[m.k]==null) per100[m.k]=0});
   const servings=(x.foodMeasures||[]).filter(m=>m.gramWeight>0&&m.disseminationText&&!/not specified/i.test(m.disseminationText))
     .slice(0,8).map(m=>({n:m.disseminationText,amt:m.gramWeight}));
-  return {name:x.description,brand:'',barcode:'',source:'usda',ext:'usda:'+x.fdcId,base:'g',per100,servings};
+  return {name:x.description,brand:'',barcode:'',source:'usda',ext:'usda:'+x.fdcId,base:'g',per100,...(Object.keys(nmeta).length?{nmeta}:{}),servings};
 }
 async function fdcSearch(q){
   const key=state.settings.usdaKey||'DEMO_KEY';
@@ -1002,6 +1107,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{
   sc.onload=()=>window.XLSX?res(window.XLSX):rej(new Error('xlsx')); sc.onerror=()=>rej(new Error('xlsx')); document.head.appendChild(sc)})}
 function cellDay(v){
   if(v instanceof Date&&!isNaN(v)){const d=new Date(v.getTime()+12*36e5); return dkey(d)}   // SheetJS dates can land just before local midnight
+  if(typeof v==='number'&&v>20000&&v<80000) return dkey(new Date(Math.round((v-25569)*864e5)+12*36e5+new Date().getTimezoneOffset()*6e4));   // a date cell that lost its date format
   const s=String(v??'').trim(), m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)||s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if(!m) return null;
   return m[1].length===4?`${m[1]}-${pad(+m[2])}-${pad(+m[3])}`:`${m[3]}-${pad(+m[1])}-${pad(+m[2])}`;
@@ -1009,17 +1115,41 @@ function cellDay(v){
 // Find a column by the start of its header, e.g. col(row,/^calories/)
 const col=(row,re)=>{const k=Object.keys(row).find(h=>re.test(h.trim().toLowerCase())); return k==null?null:row[k]};
 const colName=(rows,re)=>rows.length?Object.keys(rows[0]).find(h=>re.test(h.trim().toLowerCase())):null;
+// MacroFactor names nutrient columns like "Vitamin C (mg)"; match them to the catalog by name, keep the rest as mf:<name>
+const MF_NOT_NUTRIENT=/^(date|food name|serving|calories|protein|fat \(|fat$|carbs|time|meal|brand|notes?|expenditure|target|weight|trend)/;
+const MF_ALIAS={'vitamin b1':'thiamin','vitamin b2':'riboflavin','vitamin b3':'niacin','vitamin b5':'pantothenic','vitamin b7':'biotin','vitamin b9':'folate',
+  'folic acid':'folate','sugar':'sugars','sugars added':'addedSugars','saturated':'satFat','monounsaturated':'monoFat','polyunsaturated':'polyFat',
+  'trans':'transFat','trans fat':'transFat','omega 3':'omega3','omega 6':'omega6','omega-3':'omega3','omega-6':'omega6','dietary fiber':'fiber'};
+function mfNutrientKey(name){
+  const s=name.toLowerCase().replace(/\s+/g,' ').trim();
+  if(MF_ALIAS[s]) return MF_ALIAS[s];
+  const x=NUTRIENTS.find(n=>n.n.toLowerCase()===s||n.n.toLowerCase().replace(/ \(.*\)$/,'')===s||n.k.toLowerCase()===s.replace(/ /g,''));
+  return x?x.k:null;
+}
+function mfNutrients(row,scale){
+  const per100={}, nmeta={};
+  for(const h of Object.keys(row)){
+    const head=h.trim(), lower=head.toLowerCase(); if(MF_NOT_NUTRIENT.test(lower)) continue;
+    const v=num(row[h]); if(v==null) continue;
+    const m=head.match(/^(.*?)\s*\(([^)]+)\)\s*$/), name=(m?m[1]:head).trim(), unit=normUnit(m?m[2]:'');
+    const k=mfNutrientKey(name);
+    if(k){const c=k==='kcal'?v:convertMass(v,unit||NUT[k].u,NUT[k].u); if(c!=null) per100[k]=c*scale; continue}
+    const key='mf:'+name.toLowerCase(); per100[key]=v*scale; nmeta[key]={n:name,u:unit};
+  }
+  return {per100,nmeta};
+}
 function readMacroFactor(XLSX,buf){
   const wb=XLSX.read(buf,{type:'array',cellDates:true});
   const sheet=n=>{const k=wb.SheetNames.find(s=>s.trim().toLowerCase()===n); return k?XLSX.utils.sheet_to_json(wb.Sheets[k],{defval:null,raw:true}):[]};
   const macros=sheet('calories & macros'), micros=sheet('micronutrients'), scale=sheet('scale weight');
   if(!macros.length&&!scale.length) throw new Error('not-mf');
-  const sodium={}; for(const r of micros){const d=cellDay(col(r,/^date/)); if(d) sodium[d]=num(col(r,/^sodium/))}
+  const microsOn={}; for(const r of micros){const d=cellDay(col(r,/^date/)); if(d) microsOn[d]=mfNutrients(r,1).per100}
   const days=[];
   for(const r of macros){
     const d=cellDay(col(r,/^date/)); if(!d) continue;
-    const t={kcal:num(col(r,/^calories/))||0,protein:num(col(r,/^protein/))||0,fat:num(col(r,/^fat/))||0,carbs:num(col(r,/^carbs/))||0,sodium:sodium[d]||0};
-    if(t.kcal>0||t.protein>0) days.push({date:d,...t});
+    const all={...mfNutrients(r,1).per100,...(microsOn[d]||{})};
+    const t={kcal:num(col(r,/^calories/))||0,protein:num(col(r,/^protein/))||0,fat:num(col(r,/^fat/))||0,carbs:num(col(r,/^carbs/))||0,sodium:all.sodium||0};
+    if(t.kcal>0||t.protein>0) days.push({date:d,...t,more:moreOf(all)});
   }
   const wcol=colName(scale,/^weight/)||'', toKg=/kg/i.test(wcol)?1:KG_PER_LB;
   const weighins=[];
@@ -1031,9 +1161,10 @@ function readMacroFactor(XLSX,buf){
   const foods=new Map();
   for(const r of [...sheet('custom foods'),...sheet('favorites')]){
     const name=String(col(r,/^food name/)||'').trim(), g=num(col(r,/^serving weight/)); if(!name||!g||g<=0||foods.has(name.toLowerCase())) continue;
-    const per=k=>(num(col(r,k))||0)*100/g, qty=num(col(r,/^serving qty/)), size=String(col(r,/^serving size/)||'').trim();
+    const per=k=>(num(col(r,k))||0)*100/g, qty=num(col(r,/^serving qty/)), size=String(col(r,/^serving size/)||'').trim(), all=mfNutrients(r,100/g);
     foods.set(name.toLowerCase(),{name,brand:'',barcode:'',source:'custom',ext:'mf:'+name.toLowerCase(),base:'g',
-      per100:{kcal:per(/^calories/),protein:per(/^protein/),fat:per(/^fat \(/),carbs:per(/^carbs/),sodium:per(/^sodium/)},
+      per100:{...all.per100,kcal:per(/^calories/),protein:per(/^protein/),fat:per(/^fat \(/),carbs:per(/^carbs/),sodium:all.per100.sodium||0},
+      ...(Object.keys(all.nmeta).length?{nmeta:all.nmeta}:{}),
       servings:[{n:size?`${qty&&qty!==1?fmtQty(qty)+' ':''}${size}`:`${fmtQty(g)} g`,amt:g}]});
   }
   const prof=sheet('user profile')[0], profile={};
@@ -1105,6 +1236,7 @@ function sheetFood(){
         <label class="field">Unit<select id="pUnit" name="unit" data-prev="${esc(p.unit)}">${unitOptions(f).map(u=>`<option value="${esc(u)}"${u===p.unit?' selected':''}>${esc(unitLabel(f,u))}</option>`).join('')}</select></label>
       </div>
       <div class="preview" id="pPreview">${previewHtml(f,p.qty,p.unit)}</div>
+      ${Object.keys(f.per100).some(k=>!isMetric(k))?`<details class="allnut"><summary class="small muted">All nutrients</summary><div id="pMore">${moreHtml(f,p.qty,p.unit)}</div></details>`:''}
       <div class="row"><button class="btn primary big" type="submit">${e?'Save':'Add to '+(day===todayKey()?'today':esc(dayLabel(day)))}</button>
         ${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
     </form>
@@ -1114,6 +1246,16 @@ function sheetFood(){
 function previewHtml(f,qty,unit){
   const n=nutrientsFor(f,baseAmount(f,num(qty)||0,unit));
   return METRICS.map(m=>`<div><b>${fmt(n[m.k])}</b><span>${m.s}${m.u==='mg'?' mg':m.u==='g'?' g':''}</span></div>`).join('');
+}
+// Every nutrient the food has for this portion, grouped like a label; unknown extras last
+function moreHtml(f,qty,unit){
+  const n=nutrientsFor(f,baseAmount(f,num(qty)||0,unit)), groups={};
+  for(const k in n){if(isMetric(k)||!n[k]) continue; const g=NUT[k]?NUT[k].g:'More'; (groups[g]||(groups[g]=[])).push(k)}
+  const order=[...new Set(NUTRIENTS.map(x=>x.g)),'More'], rank=k=>NUT[k]?NUTRIENTS.indexOf(NUT[k]):1e4;
+  const val=(v,u)=>`${fmt(v,v<1?2:v<10?1:0)} ${esc(u)}`;   // amounts below 0.005 show as 0
+  if(!Object.keys(groups).length) return '<p class="small muted">No other nutrients listed for this food.</p>';
+  return order.filter(g=>groups[g]).map(g=>`<h3>${g}</h3><table>${groups[g].sort((a,b)=>rank(a)-rank(b)||nutName(a,f.nmeta).localeCompare(nutName(b,f.nmeta)))
+    .map(k=>`<tr><td>${esc(nutName(k,f.nmeta))}</td><td>${val(n[k],nutUnit(k,f.nmeta))}</td></tr>`).join('')}</table>`).join('');
 }
 function sheetQuick(){
   const e=sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
@@ -1223,7 +1365,7 @@ function logPortion(f,qty,unit,entryId){
   f=keepFood(f);
   const amt=baseAmount(f,qty,unit), n=nutrientsFor(f,amt), old=entryId&&state.entries.find(x=>x.id===entryId);
   const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:nowIso(),foodId:f.id,name:f.name+(f.brand?` (${f.brand})`:''),
-    qty,unit,unitLabel:unitLabel(f,unit),amt,...n};
+    qty,unit,unitLabel:unitLabel(f,unit),amt,...Object.fromEntries(METRICS.map(m=>[m.k,n[m.k]])),more:moreOf(n)};
   putRecord('entries',rec);
   Object.assign(f,{lastUnit:unit,lastQty:qty,lastAmt:amt,lastUsed:nowIso(),uses:(f.uses||0)+(old?0:1)}); putRecord('foods',f);
   const k=unitKind(unit); if(k!=='serving'&&state.settings.unitPrefs[k]!==unit){state.settings.unitPrefs[k]=unit; touchSettings()}
@@ -1256,8 +1398,8 @@ document.addEventListener('submit',e=>{
   if(id==='foodForm'){
     const name=String(f.get('name')||'').trim(), samt=num(f.get('samt')), base=f.get('base')==='ml'?'ml':'g';
     if(!name||!samt||samt<=0){toast('Enter a name and serving size.');return}
-    const per100={}; METRICS.forEach(m=>per100[m.k]=(num(f.get(m.k))||0)*100/samt);
     const old=sheet.food&&sheet.food.id?foodById(sheet.food.id):null;
+    const per100={...(old&&old.per100||{})}; METRICS.forEach(m=>per100[m.k]=(num(f.get(m.k))||0)*100/samt);
     const sname=String(f.get('sname')||'').trim()||`${fmtQty(samt)} ${base}`;
     const rest=old&&old.servings?old.servings.slice(1):[];
     const rec={...(old||{}),id:old?old.id:'f'+uid6(),name,brand:String(f.get('brand')||'').trim(),barcode:String(f.get('barcode')||'').replace(/\D/g,''),
@@ -1288,7 +1430,8 @@ document.addEventListener('input',e=>{
   const t=e.target;
   if(t.id==='foodQ'){search.q=t.value; clearTimeout(search.timer); search.seq++; search.off=search.usda=null; search.err={}; search.busy={off:false,usda:false}; refreshResults(); search.timer=setTimeout(runSearch,650); return}
   if(t.id==='gTarget'&&sheet&&sheet.type==='goal'){const cur=document.querySelector('#gPaces input:checked'); document.getElementById('gPaces').innerHTML=pacesHtml(num(t.value),cur?num(cur.value):null); return}
-  if(t.id==='pQty'&&sheet&&sheet.type==='food'){document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,t.value,document.getElementById('pUnit').value)}
+  if(t.id==='pQty'&&sheet&&sheet.type==='food'){const u=document.getElementById('pUnit').value, m=document.getElementById('pMore');
+    document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,t.value,u); if(m) m.innerHTML=moreHtml(sheet.food,t.value,u)}
 });
 // Google tokens last an hour. Renew on a tap when it's close to running out: a token request needs a tap,
 // and for an account that already agreed Google's window closes by itself.
@@ -1349,7 +1492,8 @@ document.addEventListener('change',async e=>{
     const amt=baseAmount(sheet.food,num(q.value)||0,t.dataset.prev), one=baseAmount(sheet.food,1,t.value);
     if(amt>0&&one>0) q.value=fmtQty(amt/one);
     t.dataset.prev=t.value;
-    document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,q.value,t.value); return}
+    document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,q.value,t.value);
+    const m=document.getElementById('pMore'); if(m) m.innerHTML=moreHtml(sheet.food,q.value,t.value); return}
   if(t.id==='mfFile'&&t.files[0]){const f=t.files[0]; t.value=''; startImport(f); return}
   if(t.id==='importFile'&&t.files[0]){
     try{const j=JSON.parse(await t.files[0].text()); if(j.app!=='nutrition-helper') throw 0;

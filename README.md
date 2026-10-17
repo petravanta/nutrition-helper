@@ -14,6 +14,7 @@ It runs in any modern browser on phone or desktop, with no sign-up. On a phone, 
 - **Food search:** type a food to search your own foods, [Open Food Facts](https://world.openfoodfacts.org) (branded and packaged foods) and [USDA FoodData Central](https://fdc.nal.usda.gov) (generic foods). Recently logged foods show before you type.
 - **Barcode scanning:** scan with the phone camera, or type the number. Barcodes come from Open Food Facts; if a product isn't there, enter it once from the label and it's saved with its barcode.
 - **Units:** log by serving (like "1 bar" or "1 cup, chopped"), by weight (g, oz, lb, kg) or, for drinks, by volume (ml, tsp, tbsp, fl oz, cup, l). Switching units keeps the same amount of food. Units are sticky: each food opens with the amount you last logged, and whichever weight or volume unit you last picked (grams vs ounces, say) becomes the default for every food.
+- **Every nutrient kept:** foods keep every nutrient their source reports (fiber, sugars, fat types, cholesterol, vitamins, minerals, caffeine and so on, plus anything else USDA, Open Food Facts or a MacroFactor export lists). Today shows the five budget numbers; *All nutrients* on a food shows the rest for the amount you're logging. Each logged entry keeps its nutrients too, ready for detail views and reports.
 - **My foods:** foods you create or log are kept, with their servings, for quick reuse. Edit or remove them under *Foods*.
 - **Quick add:** log calories and macros directly for meals out.
 - **Weigh-ins:** one per day, with optional body fat %, in lb or kg.
@@ -28,6 +29,8 @@ It runs in any modern browser on phone or desktop, with no sign-up. On a phone, 
 USDA search uses the shared `DEMO_KEY`, which has a low hourly limit per network. A free personal key from [fdc.nal.usda.gov/api-key-signup](https://fdc.nal.usda.gov/api-key-signup) can be added under *Settings → Food search*.
 
 ## Your data
+
+Foods store nutrition per 100 g (or 100 ml) in `per100`, keyed by the nutrient catalog near the top of the script (`NUTRIENTS`: name, unit, group, USDA ids, Open Food Facts key). Nutrients outside the catalog are kept under `fdc:<id>`, `off:<name>` or `mf:<name>` with their name and unit in the food's `nmeta`. Each entry has the five budget metrics as fields and the other catalog nutrients in `more`; anything rarer can be worked out from the entry's `foodId` and `amt`.
 
 Everything is stored in your browser (`localStorage`). Turn on **Google Drive sync** (below) to keep a copy in your own Drive and pick up on another device. **Export backup** under *Settings* downloads a JSON file with everything, and **Import backup** merges one back in.
 
