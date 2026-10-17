@@ -17,9 +17,14 @@ It runs in any modern browser on phone or desktop, with no sign-up. On a phone, 
 - **My foods:** foods you create or log are kept, with their servings, for quick reuse. Edit or remove them under *Foods*.
 - **Quick add:** log calories and macros directly for meals out.
 - **Weigh-ins:** one per day, with optional body fat %, in lb or kg.
-- **Targets:** set daily targets in *Settings*. A change applies from that day on, so earlier days keep the targets they had.
+- **Trend weight:** a smoothed weight that filters out day-to-day water swings (an exponential moving average, 10% per weigh-in).
+- **Expenditure:** how many calories you burn a day, measured from what you log and how your trend weight moves (over the last 3 weeks, at 7,700 kcal per kg, eased in gradually). Until there's enough logging, it starts from your profile (Mifflin-St Jeor times your activity level).
+- **Goal weight:** set a target and pick a pace as a share of body weight per week. Each pace shows the daily calories it takes, given your current expenditure, and the date you'd reach the target. Protein is set per unit of body weight, fat as a share of calories, and carbs fill the rest. Calories never drop below your resting needs (or 1,200).
+- **Weekly check-in:** once a week, Today offers a new budget from your latest expenditure. Apply it, or skip it for today. Once you reach the target, the check-in switches to holding your weight.
+- **Trends:** charts of weight (scale, trend and the planned goal path), expenditure, body fat, and each nutrient against its target, over 1 month, 3 months, 6 months, 1 year or everything. Long ranges show weekly averages. Hover or arrow-key through any chart to read values, or open its data table.
+- **Targets:** set daily targets by hand in *Settings*, or let the goal and check-ins set them. A change applies from that day on, so earlier days keep the targets they had.
 
-Coming next: trend weight, goal weight and weekly recalibration; and importing a MacroFactor export.
+Coming next: importing a MacroFactor export.
 
 USDA search uses the shared `DEMO_KEY`, which has a low hourly limit per network. A free personal key from [fdc.nal.usda.gov/api-key-signup](https://fdc.nal.usda.gov/api-key-signup) can be added under *Settings → Food search*.
 
