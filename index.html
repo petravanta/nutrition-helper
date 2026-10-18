@@ -165,6 +165,19 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .food .fn{font-weight:600;overflow-wrap:anywhere}
 .food .fb{font-size:12px;color:var(--muted)}
 .food .fk{font-family:var(--f-mono);font-size:13px;color:var(--muted);text-align:right;white-space:nowrap}
+/* suggestions carry a one-tap add for the usual portion; recipe logs group their foods */
+.sug{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;border-top:1px solid var(--line)}
+.rgroup .sug:first-of-type{border-top:0}
+.sug .food{border-top:0}
+.add-btn{white-space:nowrap}
+.rgrp .ent.sub{padding-left:14px;border-top-style:dashed}
+.picks{display:flex;flex-direction:column;gap:2px}
+.picks label{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.picks label:first-child{border-top:0}
+.ritem{display:grid;grid-template-columns:minmax(0,1fr) 80px minmax(0,110px) auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.ritem:first-child{border-top:0}
+.ritem input,.ritem select{width:100%;min-width:0}
+.ritem .rn{font-weight:600;font-size:14px;overflow-wrap:anywhere}
 .src-tag{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
 .preview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;text-align:center}
 .preview div{background:var(--sunk);border-radius:8px;padding:8px 4px}
@@ -364,8 +377,8 @@ function defaultSettings(){return{
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
 };}
-const LISTS=['entries','weighins','foods','checkins'];
-function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],checkins:[],deleted:[]}}
+const LISTS=['entries','weighins','foods','checkins','recipes'];
+function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],checkins:[],recipes:[],deleted:[]}}
 let state=emptyState();
 
 function lsGet(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}}
@@ -420,7 +433,8 @@ const weighinOn=day=>state.weighins.find(w=>w.date===day);
 /* ---------------- Foods & amounts ---------------- */
 // A food: {id, name, brand, barcode, source:'custom'|'off'|'usda', ext, base:'g'|'ml', per100:{kcal,protein,fat,carbs,sodium,…every other nutrient},
 //          nmeta:{key:{n,u}} for nutrients outside the catalog,
-//          density (g per ml, optional), servings:[{n:'1 bar', amt: in base units}], lastUnit, lastQty, lastAmt, uses, lastUsed}
+//          density (g per ml, optional), servings:[{n:'1 bar', amt: in base units}], lastUnit, lastQty, lastAmt, uses, lastUsed,
+//          seen (when it was last opened from a search or barcode, so lookups stay on the shortlist even if never logged)}
 const foodById=id=>state.foods.find(f=>f.id===id);
 const foodByExt=ext=>ext&&state.foods.find(f=>f.ext===ext);
 const foodByBarcode=code=>code&&state.foods.find(f=>f.barcode===code);
@@ -459,6 +473,64 @@ const per100Summary=f=>`${fmt(f.per100.kcal)} kcal · P ${fmt(f.per100.protein,1
 function servingSummary(f){
   const s=f.servings&&f.servings[0]; if(!s) return per100Summary(f);
   const n=nutrientsFor(f,s.amt); return `${esc(s.n)}: ${fmt(n.kcal)} kcal · P ${fmt(n.protein,1)} · F ${fmt(n.fat,1)} · C ${fmt(n.carbs,1)}`;
+}
+
+/* ---------------- Favorites & recipes ---------------- */
+// Suggestions rank what you've logged by how often, how recently (half-life of a month) and how close to this time of
+// day you usually have it. A recipe log counts once for the recipe, not for each of its foods. Imported daily totals don't count.
+function usageScores(){
+  const now=new Date(), nowH=now.getHours()+now.getMinutes()/60, today=todayKey(), sc=new Map(), groups=new Set();
+  for(const e of state.entries){
+    if(e.imported) continue;
+    const key=e.recipe?'r:'+e.recipe.id:e.foodId?'f:'+e.foodId:null; if(!key) continue;
+    if(e.recipe){if(groups.has(e.recipe.group)) continue; groups.add(e.recipe.group)}
+    const age=(parseDay(today)-parseDay(e.date))/864e5; if(age<0||age>365) continue;
+    let tod=0.3;   // logged on another day than eaten: the time says nothing about when it was eaten
+    const ts=e.ts&&new Date(e.ts);
+    if(ts&&!isNaN(ts)&&dkey(ts)===e.date){let dh=Math.abs(ts.getHours()+ts.getMinutes()/60-nowH); dh=Math.min(dh,24-dh); tod=Math.exp(-dh*dh/8)}
+    sc.set(key,(sc.get(key)||0)+Math.pow(0.5,age/30)*(0.3+0.7*tod));
+  }
+  return sc;
+}
+// The best few foods and recipes for right now, each with the portion a tap would add
+function suggestions(n=6){
+  const sc=usageScores(), out=[];
+  for(const [key,score] of sc){
+    if(score<0.3) continue;
+    const [k,id]=[key.slice(0,1),key.slice(2)], item=k==='r'?recipeById(id):foodById(id);
+    if(item) out.push({kind:k==='r'?'recipe':'food',item,score});
+  }
+  return out.sort((a,b)=>b.score-a.score).slice(0,n);
+}
+// Foods opened from Open Food Facts, USDA or a barcode are kept so they show on the shortlist and in My foods
+// without another lookup. Only the latest ones that were never logged are kept.
+const LOOKUPS_KEPT=60;
+function rememberLookup(f){
+  const rec=keepFood(f); rec.seen=nowIso(); putRecord('foods',rec);
+  const stale=state.foods.filter(x=>x.source!=='custom'&&!x.uses&&!x.lastUsed&&x.seen&&!usedInRecipe(x.id).length)
+    .sort((a,b)=>b.seen.localeCompare(a.seen)).slice(LOOKUPS_KEPT).map(x=>x.id);
+  if(stale.length){const drop=new Set(stale); state.foods=state.foods.filter(x=>!drop.has(x.id)); state.deleted.push(...stale); saveLocal()}
+  return rec;
+}
+const lastTouched=f=>[f.lastUsed||'',f.seen||''].sort().pop();
+// A recipe: {id, name, servings (how many it makes), items:[{foodId, qty, unit}], lastServings, uses, lastUsed}.
+// It logs as its foods, scaled by the servings eaten, so every nutrient stays tracked per food.
+const recipeById=id=>state.recipes.find(r=>r.id===id);
+const usedInRecipe=foodId=>state.recipes.filter(r=>r.items.some(i=>i.foodId===foodId));
+function recipeTotals(r,servings){
+  const factor=servings/(r.servings||1), t={}; METRICS.forEach(m=>t[m.k]=0);
+  for(const it of r.items){const f=foodById(it.foodId); if(!f) continue; const n=nutrientsFor(f,baseAmount(f,it.qty*factor,it.unit)); METRICS.forEach(m=>t[m.k]+=n[m.k])}
+  return t;
+}
+const recipeSummary=r=>{const n=recipeTotals(r,1); return `1 serving: ${fmt(n.kcal)} kcal · P ${fmt(n.protein,1)} · F ${fmt(n.fat,1)} · C ${fmt(n.carbs,1)}`};
+const servingsText=s=>`${fmtQty(s)} serving${s===1?'':'s'}`;
+const itemText=(f,it,factor=1)=>{const q=it.qty*factor; return unitKind(it.unit)==='serving'?`${fmtQty(q)} × ${unitLabel(f,it.unit)}`:`${fmtQty(q)} ${unitLabel(f,it.unit)}`};
+function logRecipe(r,servings){
+  const factor=servings/(r.servings||1), group='g'+uid6(), t0=Date.now(); let n=0;
+  r.items.forEach((it,i)=>{const f=foodById(it.foodId); if(!f) return;
+    logPortion(f,it.qty*factor,it.unit,null,{recipe:{id:r.id,name:r.name,group,servings},ts:new Date(t0+i).toISOString()}); n++});
+  Object.assign(r,{lastServings:servings,lastUsed:nowIso(),uses:(r.uses||0)+1}); putRecord('recipes',r);
+  return n;
 }
 
 /* ---------------- Food databases ---------------- */
@@ -724,7 +796,7 @@ function driveDisconnect(){
 }
 function drivePanel(){
   if(!driveConfigured()) return `<p class="small muted">Google Drive sync isn’t set up for this copy of the app yet.</p>`;
-  if(!Drive.on) return `<p class="small">Keep your food log, weigh-ins, foods and targets in your own Google Drive and pick them up on any device. The app can only see the one file it creates there.</p>
+  if(!Drive.on) return `<p class="small">Keep your food log, weigh-ins, foods, recipes and targets in your own Google Drive and pick them up on any device. The app can only see the one file it creates there.</p>
     <div class="row"><button class="btn sm primary" data-act="driveConnect">Connect Google Drive</button></div>`;
   return `<p class="small">${esc(driveStatus()||'')}. Changes save to <b>${esc(DRIVE_FILE)}</b> in your Drive a few seconds after you make them.</p>
     <div class="row">${driveLive()?`<button class="btn sm" data-act="driveSync">Sync now</button>`:`<button class="btn sm primary" data-act="driveSync">Resume sync</button>`}
@@ -734,6 +806,8 @@ function drivePanel(){
 /* ---------------- Views ---------------- */
 let tab=(()=>{try{return sessionStorage.getItem('nh.tab')||'today'}catch(_){return 'today'}})();
 let day=todayKey(), pendingDelete=null, sheet=null;
+// While adding foods to a recipe, picking a food adds it to this draft instead of logging it
+let building=null;
 // Food search: what's typed, and the online results for it
 const search={q:'',off:null,usda:null,busy:{off:false,usda:false},err:{},timer:null,seq:0};
 
@@ -772,15 +846,15 @@ function viewToday(){
         <input type="search" id="foodQ" placeholder="Search foods, e.g. greek yogurt" value="${esc(search.q)}" aria-label="Search foods" enterkeyhint="search">
         <button class="btn primary" type="button" data-act="scan">Scan barcode</button>
       </form>
-      <div class="row"><button class="btn sm ghost" data-act="quick">Quick add calories</button><button class="btn sm ghost" data-act="newFood">Create a food</button></div>
+      ${building?`<div class="banner"><p>Adding foods to <b>${esc(building.name||'a new recipe')}</b> (${building.items.length} so far). Pick a food and its amount.</p>
+        <button class="btn sm primary" data-act="buildDone">Done</button></div>`
+      :`<div class="row"><button class="btn sm ghost" data-act="quick">Quick add calories</button><button class="btn sm ghost" data-act="newFood">Create a food</button></div>`}
       <div id="results" class="results">${resultsHtml()}</div>
     </section>
     <section class="panel stack">
-      <h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
-      ${list.length?`<div class="entries">${list.map(e=>`<div class="ent">
-        <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${entryMeta(e)}</div></div>
-        <span class="kc">${fmt(e.kcal)} kcal</span>
-        <button class="x-btn" data-rment="${e.id}" aria-label="Remove ${esc(e.name)}">×</button></div>`).join('')}</div>`
+      <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
+        ${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div>
+      ${list.length?`<div class="entries">${entriesHtml(list)}</div>`
         :`<p class="empty">Nothing logged yet.</p>`}
     </section>
     <section class="panel stack">
@@ -790,6 +864,23 @@ function viewToday(){
     </section>
   </div>`;
 }
+const entRow=(e,sub)=>`<div class="ent${sub?' sub':''}">
+  <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${entryMeta(e)}</div></div>
+  <span class="kc">${fmt(e.kcal)} kcal</span>
+  <button class="x-btn" data-rment="${e.id}" aria-label="Remove ${esc(e.name)}">×</button></div>`;
+// A recipe log shows as one line with its foods under it, where each can still be changed or removed
+function entriesHtml(list){
+  const done=new Set();
+  return list.map(e=>{
+    if(!e.recipe) return entRow(e);
+    const g=e.recipe.group; if(done.has(g)) return ''; done.add(g);
+    const items=list.filter(x=>x.recipe&&x.recipe.group===g), kc=items.reduce((a,x)=>a+(Number(x.kcal)||0),0);
+    const t=k=>fmt(items.reduce((a,x)=>a+(Number(x[k])||0),0));
+    return `<div class="rgrp"><div class="ent"><div><span class="nm">${esc(e.recipe.name)}</span><div class="meta">${servingsText(e.recipe.servings)} · P ${t('protein')} · F ${t('fat')} · C ${t('carbs')} · Na ${t('sodium')} mg</div></div>
+      <span class="kc">${fmt(kc)} kcal</span><button class="x-btn" data-rmgroup="${esc(g)}" aria-label="Remove ${esc(e.recipe.name)}">×</button></div>
+      ${items.map(x=>entRow(x,true)).join('')}</div>`;
+  }).join('');
+}
 function checkinBanner(){
   const p=proposal(); if(!p) return '';
   const cur=targetsFor(todayKey()), M=model(), last=lastCheckin();
@@ -798,24 +889,46 @@ function checkinBanner(){
     New budget: <b>${fmt(p.targets.kcal)} kcal</b>${d?` (${d>0?'+':''}${fmt(d)})`:''}, ${fmt(p.targets.protein)} g protein, ${fmt(p.targets.fat)} g fat, ${fmt(p.targets.carbs)} g carbs.</p>
     <div class="row"><button class="btn sm primary" data-act="applyCheckin">Apply</button><button class="btn sm ghost" data-act="snooze">Not now</button></div></section>`;
 }
-function foodRow(f,attr){
-  return `<button class="food" ${attr}><span><span class="fn">${esc(f.name)}</span>${f.brand?` <span class="fb">${esc(f.brand)}</span>`:''}<br><span class="fb">${servingSummary(f)}</span></span>
+function foodRow(f,attr,tag){
+  return `<button class="food" ${attr}><span><span class="fn">${esc(f.name)}</span>${f.brand?` <span class="fb">${esc(f.brand)}</span>`:''}${tag?` <span class="src-tag">${esc(tag)}</span>`:''}<br><span class="fb">${servingSummary(f)}</span></span>
     <span class="fk">${fmt(f.per100.kcal)}<br><span class="src-tag">kcal/100${f.base}</span></span></button>`;
 }
+function recipeRow(r){
+  return `<button class="food" data-pickrecipe="${r.id}"><span><span class="fn">${esc(r.name)}</span> <span class="src-tag">Recipe</span><br><span class="fb">${recipeSummary(r)}</span></span>
+    <span class="fk">${fmt(recipeTotals(r,1).kcal)}<br><span class="src-tag">kcal/serving</span></span></button>`;
+}
+// A suggestion opens like any food, or adds its usual portion in one tap
+function suggestionRow(x){
+  if(x.kind==='recipe'){const r=x.item, s=r.lastServings||1;
+    return `<div class="sug">${recipeRow(r)}<button class="btn sm add-btn" data-quickrecipe="${r.id}" aria-label="Add ${esc(servingsText(s))} of ${esc(r.name)}">+ ${esc(servingsText(s))}</button></div>`}
+  const f=x.item, p=defaultPortion(f), lbl=itemText(f,p);
+  return `<div class="sug">${foodRow(f,`data-pickfood="${f.id}"`)}<button class="btn sm add-btn" data-quickfood="${f.id}" aria-label="Add ${esc(lbl)} of ${esc(f.name)}">+ ${esc(lbl)}</button></div>`;
+}
+const matchesWords=(text,words)=>{const h=text.toLowerCase(); return words.every(w=>h.includes(w))};
 function localMatches(q){
-  const words=q.toLowerCase().split(/\s+/).filter(Boolean);
-  const score=f=>(f.uses||0)+(f.lastUsed?1:0);
-  return state.foods.filter(f=>{const h=`${f.name} ${f.brand||''}`.toLowerCase(); return words.every(w=>h.includes(w))})
-    .sort((a,b)=>score(b)-score(a)||(b.lastUsed||'').localeCompare(a.lastUsed||'')).slice(0,12);
+  const words=q.toLowerCase().split(/\s+/).filter(Boolean), sc=usageScores();
+  const score=f=>(sc.get('f:'+f.id)||0)*10+(f.uses||0)+(f.lastUsed?1:0);
+  return state.foods.filter(f=>matchesWords(`${f.name} ${f.brand||''}`,words))
+    .sort((a,b)=>score(b)-score(a)||lastTouched(b).localeCompare(lastTouched(a))).slice(0,12);
+}
+function recipeMatches(q){
+  const words=q.toLowerCase().split(/\s+/).filter(Boolean), sc=usageScores();
+  return state.recipes.filter(r=>matchesWords(r.name,words)).sort((a,b)=>(sc.get('r:'+b.id)||0)-(sc.get('r:'+a.id)||0)).slice(0,6);
+}
+// Before typing: suggestions for this time of day, then recipes, then the latest foods logged or looked up
+function shortlistHtml(){
+  const sug=building?[]:suggestions(), inSug=new Set(sug.map(x=>x.item.id));
+  const recipes=building?[]:[...state.recipes].filter(r=>!inSug.has(r.id)).sort((a,b)=>(b.lastUsed||b.u||'').localeCompare(a.lastUsed||a.u||'')).slice(0,5);
+  const recent=state.foods.filter(f=>lastTouched(f)&&!inSug.has(f.id)).sort((a,b)=>lastTouched(b).localeCompare(lastTouched(a))).slice(0,10);
+  if(!sug.length&&!recipes.length&&!recent.length) return `<p class="note">Type a food to search your foods, Open Food Facts and USDA, or scan a barcode.</p>`;
+  return `${sug.length?`<div class="rgroup"><h4>Suggested for now</h4>${sug.map(suggestionRow).join('')}</div>`:''}
+    ${recipes.length?`<div class="rgroup"><h4>Recipes</h4>${recipes.map(recipeRow).join('')}</div>`:''}
+    ${recent.length?`<div class="rgroup"><h4>Recent</h4>${recent.map(f=>foodRow(f,`data-pickfood="${f.id}"`,!f.lastUsed&&f.seen?'Looked up':'')).join('')}</div>`:''}`;
 }
 function resultsHtml(){
   const q=search.q.trim();
-  if(!q){
-    const recent=[...state.foods].filter(f=>f.lastUsed).sort((a,b)=>b.lastUsed.localeCompare(a.lastUsed)).slice(0,10);
-    return recent.length?`<div class="rgroup"><h4>Recent</h4>${recent.map(f=>foodRow(f,`data-pickfood="${f.id}"`)).join('')}</div>`
-      :`<p class="note">Type a food to search your foods, Open Food Facts and USDA, or scan a barcode.</p>`;
-  }
-  const mine=localMatches(q), seen=new Set(state.foods.map(f=>f.ext).filter(Boolean));
+  if(!q) return shortlistHtml();
+  const mine=localMatches(q), recipes=building?[]:recipeMatches(q), seen=new Set(state.foods.map(f=>f.ext).filter(Boolean));
   const group=(key,title)=>{
     const list=(search[key]||[]).filter(f=>!seen.has(f.ext));
     let body;
@@ -826,7 +939,8 @@ function resultsHtml(){
     else body=list.slice(0,15).map((f,i)=>foodRow(f,`data-pickext="${key}:${search[key].indexOf(f)}"`)).join('');
     return `<div class="rgroup"><h4>${title}</h4>${body}</div>`;
   };
-  return `${mine.length?`<div class="rgroup"><h4>My foods</h4>${mine.map(f=>foodRow(f,`data-pickfood="${f.id}"`)).join('')}</div>`:''}
+  return `${recipes.length?`<div class="rgroup"><h4>Recipes</h4>${recipes.map(recipeRow).join('')}</div>`:''}
+    ${mine.length?`<div class="rgroup"><h4>My foods</h4>${mine.map(f=>foodRow(f,`data-pickfood="${f.id}"`)).join('')}</div>`:''}
     ${group('off','Open Food Facts')}${group('usda','USDA')}
     <p class="note">Can’t find it? <button class="btn sm ghost" data-act="newFood">Create a food</button></p>`;
 }
@@ -919,7 +1033,14 @@ function viewFoods(){
   const list=[...state.foods].sort((a,b)=>a.name.localeCompare(b.name));
   return `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>My foods</h2><button class="btn sm primary" data-act="newFood">Create a food</button></div>
-    <p class="small muted">Foods you’ve created or logged. Each remembers the amount and unit you last used.</p>
+    <section class="panel stack"><div class="row" style="justify-content:space-between"><h3>Recipes</h3><button class="btn sm" data-act="newRecipe">Create a recipe</button></div>
+      ${state.recipes.length?`<div>${[...state.recipes].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<div class="ent">
+        <div><button class="nm" data-editrecipe="${r.id}">${esc(r.name)}</button><div class="meta">Makes ${servingsText(r.servings||1)} · ${r.items.length} food${r.items.length===1?'':'s'} · ${recipeSummary(r)}</div></div>
+        <button class="btn sm ghost" data-pickrecipe="${r.id}">Log</button>
+        <button class="x-btn" data-rmrecipe="${r.id}" aria-label="Remove ${esc(r.name)}">×</button></div>`).join('')}</div>`
+      :`<p class="small muted">Group foods you often eat together, then log them in one go. Build one here, or log a meal and use <b>Save as recipe</b> on Today.</p>`}
+    </section>
+    <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used.</p>
     <section class="panel">${list.length?list.map(f=>`<div class="ent">
         <div><button class="nm" data-editfood="${f.id}">${esc(f.name)}</button>${f.brand?` <span class="fb small muted">${esc(f.brand)}</span>`:''}
           <div class="meta">${per100Summary(f)}</div></div>
@@ -1225,6 +1346,7 @@ async function startImport(file){
 
 /* ---------------- Sheets ---------------- */
 // sheet: {type:'food', food, entryId?} | {type:'scan'} | {type:'quick', entryId?} | {type:'editFood', food, then?}
+//      | {type:'recipe', recipe} | {type:'editRecipe', draft} | {type:'saveRecipe'}
 function sheetFood(){
   const {food:f,entryId}=sheet, e=entryId&&state.entries.find(x=>x.id===entryId);
   const p=e&&e.unit&&unitOptions(f).includes(e.unit)?{unit:e.unit,qty:e.qty}:defaultPortion(f);
@@ -1237,7 +1359,7 @@ function sheetFood(){
       </div>
       <div class="preview" id="pPreview">${previewHtml(f,p.qty,p.unit)}</div>
       ${Object.keys(f.per100).some(k=>!isMetric(k))?`<details class="allnut"><summary class="small muted">All nutrients</summary><div id="pMore">${moreHtml(f,p.qty,p.unit)}</div></details>`:''}
-      <div class="row"><button class="btn primary big" type="submit">${e?'Save':'Add to '+(day===todayKey()?'today':esc(dayLabel(day)))}</button>
+      <div class="row"><button class="btn primary big" type="submit">${e?'Save':building?'Add to recipe':'Add to '+(day===todayKey()?'today':esc(dayLabel(day)))}</button>
         ${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
     </form>
     <p class="note">${per100Summary(f)}${f.servings&&f.servings.length?'':'. No serving sizes listed, so log it by weight or volume.'}</p>
@@ -1256,6 +1378,65 @@ function moreHtml(f,qty,unit){
   if(!Object.keys(groups).length) return '<p class="small muted">No other nutrients listed for this food.</p>';
   return order.filter(g=>groups[g]).map(g=>`<h3>${g}</h3><table>${groups[g].sort((a,b)=>rank(a)-rank(b)||nutName(a,f.nmeta).localeCompare(nutName(b,f.nmeta)))
     .map(k=>`<tr><td>${esc(nutName(k,f.nmeta))}</td><td>${val(n[k],nutUnit(k,f.nmeta))}</td></tr>`).join('')}</table>`).join('');
+}
+const addToDay=()=>'Add to '+(day===todayKey()?'today':esc(dayLabel(day)));
+function sheetRecipe(){
+  const r=sheet.recipe, s=r.lastServings||1, missing=r.items.filter(i=>!foodById(i.foodId)).length;
+  return `<h2>${esc(r.name)}</h2>
+    <p class="small muted">Recipe · makes ${servingsText(r.servings||1)} · ${r.items.length} food${r.items.length===1?'':'s'}</p>
+    <form class="stack" id="recipeLogForm" autocomplete="off">
+      <label class="field">Servings<input type="number" id="rQty" name="qty" inputmode="decimal" step="any" min="0" value="${fmtQty(s)}" required></label>
+      <div class="preview" id="rPreview">${recipePreviewHtml(r,s)}</div>
+      <div id="rItems">${recipeItemsHtml(r,s)}</div>
+      ${missing?`<p class="note">${missing} of its foods ${missing===1?'was':'were'} removed from My foods and won’t be logged.</p>`:''}
+      <div class="row"><button class="btn primary big" type="submit">${addToDay()}</button></div>
+    </form>
+    <div class="row"><button class="btn sm ghost" data-editrecipe="${r.id}">Edit recipe</button></div>`;
+}
+function recipePreviewHtml(r,s){const n=recipeTotals(r,num(s)||0); return METRICS.map(m=>`<div><b>${fmt(n[m.k])}</b><span>${m.s}${m.u==='mg'?' mg':m.u==='g'?' g':''}</span></div>`).join('')}
+function recipeItemsHtml(r,s){
+  const factor=(num(s)||0)/(r.servings||1);
+  return `<div class="entries">${r.items.map(it=>{const f=foodById(it.foodId); if(!f) return '';
+    return `<div class="ent"><div><span class="nm">${esc(f.name)}</span><div class="meta">${esc(itemText(f,it,factor))}</div></div>
+      <span class="kc">${fmt(nutrientsFor(f,baseAmount(f,it.qty*factor,it.unit)).kcal)} kcal</span><span></span></div>`}).join('')}</div>`;
+}
+// The recipe being edited lives in sheet.draft until it's saved
+function sheetEditRecipe(){
+  const d=sheet.draft;
+  return `<h2>${d.id?'Edit recipe':'New recipe'}</h2>
+    <form class="stack" id="recipeForm" autocomplete="off">
+      <div class="qty"><label class="field">Name<input type="text" name="name" value="${esc(d.name)}" placeholder="e.g. Overnight oats" required></label>
+        <label class="field">Makes (servings)<input type="number" name="servings" inputmode="decimal" step="any" min="0" value="${fmtQty(d.servings||1)}" required></label></div>
+      <div>${d.items.length?d.items.map((it,i)=>{const f=foodById(it.foodId);
+        if(!f) return `<div class="ritem"><span class="rn muted">A removed food</span><span></span><span></span><button class="x-btn" type="button" data-rmitem="${i}" aria-label="Remove it">×</button></div>`;
+        return `<div class="ritem"><span class="rn">${esc(f.name)}</span>
+          <input type="number" name="q${i}" inputmode="decimal" step="any" min="0" value="${fmtQty(it.qty)}" aria-label="Amount of ${esc(f.name)}">
+          <select name="u${i}" data-prev="${esc(it.unit)}" aria-label="Unit for ${esc(f.name)}">${unitOptions(f).map(u=>`<option value="${esc(u)}"${u===it.unit?' selected':''}>${esc(unitLabel(f,u))}</option>`).join('')}</select>
+          <button class="x-btn" type="button" data-rmitem="${i}" aria-label="Remove ${esc(f.name)}">×</button></div>`}).join('')
+        :'<p class="small muted">No foods yet.</p>'}</div>
+      <div class="row"><button class="btn sm" type="button" data-act="recipeAddFoods">Add foods</button></div>
+      <p class="small muted" id="rSummary">${d.items.length?recipeSummary(d):''}</p>
+      <div class="row"><button class="btn primary big" type="submit">Save recipe</button>
+        ${d.id?`<button class="btn ghost danger" type="button" data-rmrecipe="${d.id}">Remove</button>`:''}</div>
+    </form>`;
+}
+// Read the editor's fields back into the draft before anything redraws it
+function syncDraft(){
+  const form=document.getElementById('recipeForm'); if(!form||!sheet||!sheet.draft) return;
+  const f=new FormData(form), d=sheet.draft;
+  d.name=String(f.get('name')||'').trim(); d.servings=num(f.get('servings'))||1;
+  d.items.forEach((it,i)=>{const q=num(f.get('q'+i)), u=f.get('u'+i); if(q!=null) it.qty=q; if(u) it.unit=u});
+}
+function sheetSaveRecipe(){
+  const list=entriesFor(day).filter(e=>e.foodId&&!e.imported&&foodById(e.foodId));
+  return `<h2>Save as recipe</h2>
+    <p class="small muted">Pick the foods that go together. Logging the recipe later adds them again in these amounts, scaled to the servings you have.</p>
+    <form class="stack" id="saveRecipeForm" autocomplete="off">
+      <div class="qty"><label class="field">Name<input type="text" name="name" placeholder="e.g. Usual breakfast" required></label>
+        <label class="field">Makes (servings)<input type="number" name="servings" inputmode="decimal" step="any" min="0" value="1" required></label></div>
+      <div class="picks">${list.map(e=>`<label><input type="checkbox" name="pick" value="${e.id}" checked><span>${esc(e.name)}<br><span class="small muted">${esc(fmtQty(e.qty))} ${esc(e.unitLabel)}</span></span><span class="small mono">${fmt(e.kcal)} kcal</span></label>`).join('')}</div>
+      <div class="row"><button class="btn primary big" type="submit">Save recipe</button></div>
+    </form>`;
 }
 function sheetQuick(){
   const e=sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
@@ -1292,9 +1473,10 @@ function sheetScan(){
 function renderSheet(){
   const h=document.getElementById('sheetHost');
   if(!sheet){h.innerHTML='';return}
-  const body={food:sheetFood,quick:sheetQuick,editFood:sheetEditFood,scan:sheetScan,goal:sheetGoal,import:sheetImport}[sheet.type]();
+  const body={food:sheetFood,quick:sheetQuick,editFood:sheetEditFood,scan:sheetScan,goal:sheetGoal,import:sheetImport,
+    recipe:sheetRecipe,editRecipe:sheetEditRecipe,saveRecipe:sheetSaveRecipe}[sheet.type]();
   h.innerHTML=`<div class="scrim" data-close="1"></div><div class="drawer" role="dialog" aria-modal="true"><button class="x" data-close="1" aria-label="Close">×</button>${body}</div>`;
-  const first=h.querySelector('#pQty,#quickAdd input,#foodForm input,#gTarget');
+  const first=h.querySelector('#pQty,#quickAdd input,#foodForm input,#gTarget,#rQty,#saveRecipeForm input');
   if(first) first.focus({preventScroll:true});
   if(sheet.type==='scan') startScan();
 }
@@ -1346,7 +1528,7 @@ async function gotBarcode(code){
   try{
     const f=await offBarcode(code);
     if(!sheet||sheet.type!=='scan') return;
-    if(f){openSheet({type:'food',food:foodByExt(f.ext)||f});return}
+    if(f){openSheet({type:'food',food:rememberLookup(f)});return}
     toast('Not in Open Food Facts. Add it from the label.');
     openSheet({type:'editFood',food:{barcode:code},then:'log'});
   }catch(_){
@@ -1361,12 +1543,14 @@ function keepFood(f){
   const have=foodByExt(f.ext); if(have) return have;
   const rec={...f,id:'f'+uid6(),uses:0}; putRecord('foods',rec); return rec;
 }
-function logPortion(f,qty,unit,entryId){
+// opt.recipe marks the entry as part of a recipe log; those leave the food's own last portion alone
+function logPortion(f,qty,unit,entryId,opt={}){
   f=keepFood(f);
-  const amt=baseAmount(f,qty,unit), n=nutrientsFor(f,amt), old=entryId&&state.entries.find(x=>x.id===entryId);
-  const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:nowIso(),foodId:f.id,name:f.name+(f.brand?` (${f.brand})`:''),
-    qty,unit,unitLabel:unitLabel(f,unit),amt,...Object.fromEntries(METRICS.map(m=>[m.k,n[m.k]])),more:moreOf(n)};
+  const amt=baseAmount(f,qty,unit), n=nutrientsFor(f,amt), old=entryId&&state.entries.find(x=>x.id===entryId), recipe=opt.recipe||old&&old.recipe;
+  const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:opt.ts||nowIso(),foodId:f.id,name:f.name+(f.brand?` (${f.brand})`:''),
+    qty,unit,unitLabel:unitLabel(f,unit),amt,...Object.fromEntries(METRICS.map(m=>[m.k,n[m.k]])),more:moreOf(n),...(recipe?{recipe}:{})};
   putRecord('entries',rec);
+  if(recipe) return rec;
   Object.assign(f,{lastUnit:unit,lastQty:qty,lastAmt:amt,lastUsed:nowIso(),uses:(f.uses||0)+(old?0:1)}); putRecord('foods',f);
   const k=unitKind(unit); if(k!=='serving'&&state.settings.unitPrefs[k]!==unit){state.settings.unitPrefs[k]=unit; touchSettings()}
   return rec;
@@ -1387,8 +1571,25 @@ document.addEventListener('submit',e=>{
   if(id==='searchForm'){clearTimeout(search.timer); runSearch(); return}
   if(id==='portionForm'){
     const qty=num(f.get('qty')), unit=f.get('unit'); if(!qty||qty<=0){toast('Enter an amount.');return}
+    if(building&&!sheet.entryId){const food=keepFood(sheet.food); building.items.push({foodId:food.id,qty,unit});
+      toast(`Added ${food.name} to ${building.name||'the recipe'}`); closeSheet(); render(); return}
     const rec=logPortion(sheet.food,qty,unit,sheet.entryId);
     toast(sheet.entryId?'Entry updated':`Added ${rec.name}`); closeSheet(); render(); return}
+  if(id==='recipeLogForm'){
+    const s=num(f.get('qty')); if(!s||s<=0){toast('Enter how many servings.');return}
+    const r=sheet.recipe, n=logRecipe(r,s); toast(n?`Added ${r.name}`:'None of this recipe’s foods are left to log.'); closeSheet(); render(); return}
+  if(id==='recipeForm'){
+    syncDraft(); const d=sheet.draft;
+    if(!d.name){toast('Give the recipe a name.');return}
+    const items=d.items.filter(i=>foodById(i.foodId)&&i.qty>0); if(!items.length){toast('Add at least one food.');return}
+    const old=d.id&&recipeById(d.id);
+    putRecord('recipes',{...(old||{uses:0}),id:old?old.id:'r'+uid6(),name:d.name,servings:d.servings,items:items.map(({foodId,qty,unit})=>({foodId,qty,unit}))});
+    toast(old?'Recipe saved':`Created ${d.name}`); closeSheet(); render(); return}
+  if(id==='saveRecipeForm'){
+    const name=String(f.get('name')||'').trim(), servings=num(f.get('servings'))||1, picks=new Set(f.getAll('pick'));
+    const items=entriesFor(day).filter(e=>picks.has(e.id)&&foodById(e.foodId)).map(e=>({foodId:e.foodId,qty:e.qty,unit:e.unit}));
+    if(!name){toast('Give the recipe a name.');return} if(!items.length){toast('Pick at least one food.');return}
+    putRecord('recipes',{id:'r'+uid6(),name,servings,items,uses:0}); toast(`Saved ${name}. Find it before you search, or under Foods.`); closeSheet(); render(); return}
   if(id==='quickAdd'){
     const old=sheet&&sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
     const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:nowIso(),name:String(f.get('name')||'').trim()||'Quick add'};
@@ -1430,6 +1631,8 @@ document.addEventListener('input',e=>{
   const t=e.target;
   if(t.id==='foodQ'){search.q=t.value; clearTimeout(search.timer); search.seq++; search.off=search.usda=null; search.err={}; search.busy={off:false,usda:false}; refreshResults(); search.timer=setTimeout(runSearch,650); return}
   if(t.id==='gTarget'&&sheet&&sheet.type==='goal'){const cur=document.querySelector('#gPaces input:checked'); document.getElementById('gPaces').innerHTML=pacesHtml(num(t.value),cur?num(cur.value):null); return}
+  if(t.id==='rQty'&&sheet&&sheet.type==='recipe'){document.getElementById('rPreview').innerHTML=recipePreviewHtml(sheet.recipe,t.value); document.getElementById('rItems').innerHTML=recipeItemsHtml(sheet.recipe,t.value); return}
+  if(t.closest&&t.closest('#recipeForm')&&sheet&&sheet.draft){syncDraft(); const el=document.getElementById('rSummary'); if(el) el.textContent=sheet.draft.items.length?recipeSummary(sheet.draft):''; return}
   if(t.id==='pQty'&&sheet&&sheet.type==='food'){const u=document.getElementById('pUnit').value, m=document.getElementById('pMore');
     document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,t.value,u); if(m) m.innerHTML=moreHtml(sheet.food,t.value,u)}
 });
@@ -1449,7 +1652,20 @@ document.addEventListener('click',async e=>{
   if(d.day){day=addDays(day,+d.day);render();return}
   if(d.act==='goToday'){day=todayKey();render();return}
   if(d.pickfood){openSheet({type:'food',food:foodById(d.pickfood)});return}
-  if(d.pickext){const [k,i]=d.pickext.split(':'), f=(search[k]||[])[+i]; if(f) openSheet({type:'food',food:foodByExt(f.ext)||f}); return}
+  if(d.pickext){const [k,i]=d.pickext.split(':'), f=(search[k]||[])[+i]; if(f){openSheet({type:'food',food:rememberLookup(f)}); refreshResults()} return}
+  if(d.pickrecipe){const r=recipeById(d.pickrecipe); if(r) openSheet({type:'recipe',recipe:r}); return}
+  if(d.quickfood){const f=foodById(d.quickfood); if(!f) return; const p=defaultPortion(f), rec=logPortion(f,p.qty,p.unit); toast(`Added ${itemText(f,p)} of ${rec.name}`); render(); return}
+  if(d.quickrecipe){const r=recipeById(d.quickrecipe); if(!r) return; const s=r.lastServings||1; logRecipe(r,s); toast(`Added ${servingsText(s)} of ${r.name}`); render(); return}
+  if(d.rmgroup){const ids=state.entries.filter(x=>x.recipe&&x.recipe.group===d.rmgroup).map(x=>x.id), x=state.entries.find(x=>x.id===ids[0]);
+    state.entries=state.entries.filter(x=>!ids.includes(x.id)); state.deleted.push(...ids); saveLocal(); toast(`Removed ${x?x.recipe.name:'recipe'}`); render(); return}
+  if(d.act==='saveRecipe'){openSheet({type:'saveRecipe'});return}
+  if(d.act==='newRecipe'){openSheet({type:'editRecipe',draft:{name:'',servings:1,items:[]}});return}
+  if(d.editrecipe){const r=recipeById(d.editrecipe); if(r) openSheet({type:'editRecipe',draft:{id:r.id,name:r.name,servings:r.servings||1,items:r.items.map(i=>({...i}))}}); return}
+  if(d.rmitem){syncDraft(); sheet.draft.items.splice(+d.rmitem,1); renderSheet(); return}
+  if(d.act==='recipeAddFoods'){syncDraft(); building=sheet.draft; closeSheet(); tab='today'; search.q=''; render(); window.scrollTo(0,0);
+    const q=document.getElementById('foodQ'); if(q) q.focus(); return}
+  if(d.act==='buildDone'){const dr=building; building=null; search.q=''; render(); openSheet({type:'editRecipe',draft:dr}); return}
+  if(d.rmrecipe){const r=recipeById(d.rmrecipe); dropRecord('recipes',d.rmrecipe); toast(`Removed ${r?r.name:'recipe'}. Logged entries stay.`); if(sheet) closeSheet(); render(); return}
   if(d.editent){const x=state.entries.find(e=>e.id===d.editent), f=x&&x.foodId&&foodById(x.foodId);
     openSheet(f?{type:'food',food:f,entryId:x.id}:{type:'quick',entryId:d.editent}); return}
   if(d.rment){const x=state.entries.find(e=>e.id===d.rment); dropRecord('entries',d.rment); toast(`Removed ${x?x.name:'entry'}`); if(sheet) closeSheet(); render(); return}
@@ -1465,7 +1681,8 @@ document.addEventListener('click',async e=>{
   if(d.act==='newFood'){const log=tab==='today'; openSheet({type:'editFood',food:{name:log?search.q.trim():''},then:log?'log':null});return}
   if(d.act==='editThisFood'){openSheet({type:'editFood',food:sheet.food,then:'log',entryId:sheet.entryId});return}
   if(d.editfood){openSheet({type:'editFood',food:foodById(d.editfood)});return}
-  if(d.rmfood){const x=foodById(d.rmfood); dropRecord('foods',d.rmfood); toast(`Removed ${x?x.name:'food'}. Logged entries stay.`); render(); return}
+  if(d.rmfood){const x=foodById(d.rmfood), rs=usedInRecipe(d.rmfood); dropRecord('foods',d.rmfood);
+    toast(`Removed ${x?x.name:'food'}. Logged entries stay${rs.length?`; ${rs.map(r=>r.name).join(', ')} won’t include it`:''}.`); render(); return}
   if(d.rmweigh){dropRecord('weighins',d.rmweigh); toast('Weigh-in removed'); render(); return}
   if(d.wunit){state.settings.weightUnit=d.wunit; touchSettings(); render(); return}
   if(d.unitpref){const [k,u]=d.unitpref.split(':'); state.settings.unitPrefs[k]=u; touchSettings(); render(); return}
@@ -1494,6 +1711,11 @@ document.addEventListener('change',async e=>{
     t.dataset.prev=t.value;
     document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,q.value,t.value);
     const m=document.getElementById('pMore'); if(m) m.innerHTML=moreHtml(sheet.food,q.value,t.value); return}
+  // Same for a food's unit in the recipe editor
+  if(/^u\d+$/.test(t.name||'')&&t.closest('#recipeForm')&&sheet&&sheet.draft){
+    const it=sheet.draft.items[+t.name.slice(1)], f=it&&foodById(it.foodId), q=t.form.elements['q'+t.name.slice(1)];
+    if(f&&q){const amt=baseAmount(f,num(q.value)||0,t.dataset.prev), one=baseAmount(f,1,t.value); if(amt>0&&one>0) q.value=fmtQty(amt/one)}
+    t.dataset.prev=t.value; syncDraft(); const el=document.getElementById('rSummary'); if(el) el.textContent=recipeSummary(sheet.draft); return}
   if(t.id==='mfFile'&&t.files[0]){const f=t.files[0]; t.value=''; startImport(f); return}
   if(t.id==='importFile'&&t.files[0]){
     try{const j=JSON.parse(await t.files[0].text()); if(j.app!=='nutrition-helper') throw 0;
