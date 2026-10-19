@@ -48,8 +48,8 @@ It's a single static page, `index.html`, with no build step, plus `manifest.webm
 
 Under *Settings → Google Drive*, **Connect Google Drive** signs you in with Google and keeps a file called `Nutrition Helper data.json` in your Drive. It saves a few seconds after each change. When you connect on another device, the app merges both copies: every food entry and weigh-in is kept (the latest edit of each wins, and deletions carry over), and the most recently changed settings win. The app uses the `drive.file` permission, so it can only see the file it creates, not the rest of your Drive.
 
-Google sign-ins last about an hour. The app keeps the sign-in across reloads and renews it the next time you tap something when it's close to running out. If it lapses, tap **Resume Drive sync** in the header. Everything still saves in the browser in the meantime.
+Google sign-ins last about an hour. The app keeps the sign-in across reloads, shares it with petravanta's other apps on the same browser, and renews it the next time you tap something when it's close to running out. If it lapses, tap **Resume Drive sync** in the header. Everything still saves in the browser in the meantime.
 
 The app uses the shared OAuth client for `https://petravanta.github.io` (`GOOGLE_CLIENT_ID` near the top of the script); see the [shared standards](https://github.com/petravanta/general/blob/main/STANDARDS.md). While that client's consent screen is in *Testing*, only Google accounts added as test users can connect.
 
-Part of [Peter's apps](https://petravanta.github.io/general/).
+Part of [petravanta's apps](https://petravanta.github.io/general/).
