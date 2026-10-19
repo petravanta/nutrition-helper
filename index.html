@@ -115,8 +115,31 @@ textarea{resize:vertical}
 :root{--accent:#c2410c; --accent-ink:#ffffff; --accent-soft:#fde4d6; --ok:#11897a; --over:#b3261e}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--accent:#fb8a4c; --accent-ink:#1f0c03; --accent-soft:#3d2014; --ok:#3cc3ad; --over:#ff8a80}}
 :root[data-theme="dark"]{--accent:#fb8a4c; --accent-ink:#1f0c03; --accent-soft:#3d2014; --ok:#3cc3ad; --over:#ff8a80}
-/* Layout: sticky header with tabs over one working column. Today shows the day's budget, the food search, entries and weigh-in.
-   Picking a food, scanning, quick add and food editing open in the side sheet (bottom sheet on phones). */
+/* Layout: sticky header with tabs over one working column. Today shows the day's budget, entries and weigh-in.
+   Adding food is its own overlay (full screen on phones, a centred window on wide screens), opened from the Add food button.
+   Picking a food, scanning, quick add and food editing open in the side sheet (bottom sheet on phones) above it. */
+.fab{position:fixed;z-index:25;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 16px);
+  padding:13px 20px;font-size:16px;box-shadow:0 6px 18px rgba(10,16,20,.22)}
+.has-fab{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}
+.has-fab ~ #toastHost .toast{bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}
+body.adding{overflow:hidden}
+.adder{position:fixed;z-index:32;left:50%;top:5vh;transform:translateX(-50%);width:min(640px,calc(100% - 32px));height:90vh;
+  background:var(--bg);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden}
+.adder-scrim{z-index:31}
+.adder .ahead{display:flex;flex-direction:column;gap:10px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+.adder .atitle{display:flex;align-items:center;gap:10px}
+.adder .atitle h2{margin:0;margin-right:auto}
+.adder .x{background:var(--sunk);border:0;border-radius:999px;width:36px;height:36px;font-size:20px;line-height:1;flex:none}
+.adder .left{font-size:13px;color:var(--muted)}
+.adder .left b{color:var(--ink);font-family:var(--f-mono);font-weight:500}
+.adder .left .over{color:var(--over)}
+.adder .abody{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 24px);display:flex;flex-direction:column;gap:14px}
+@media (max-width:640px){
+  .adder{inset:0;transform:none;width:auto;height:auto;border:0;border-radius:0}
+  .adder .ahead{padding:calc(env(safe-area-inset-top,0px) + 12px) max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px))}
+  .adder-scrim{display:none}
+}
+@media (prefers-reduced-motion:no-preference){.adder{animation:rise .16s ease-out}@keyframes rise{from{opacity:.3;margin-top:16px}}}
 input[type=date],input[type=search]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;font-weight:500;min-width:0}
 .daybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .daybar h2{margin-right:auto}
@@ -271,6 +294,7 @@ details summary{cursor:pointer}
   </div>
 </header>
 <main class="wrap" id="main"></main>
+<div id="adderHost"></div>
 <div id="sheetHost"></div>
 <div id="toastHost"></div>
 
@@ -878,28 +902,72 @@ function viewToday(){
     ${day===todayKey()&&checkinDue()?checkinBanner():''}
     <section class="budget" aria-label="Daily budget">${METRICS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
     <section class="panel stack">
-      <h3>Add food</h3>
-      <form class="searchbar" id="searchForm" role="search" autocomplete="off">
-        <input type="search" id="foodQ" placeholder="Search foods, e.g. greek yogurt" value="${esc(search.q)}" aria-label="Search foods" enterkeyhint="search">
-        <button class="btn primary" type="button" data-act="scan">Scan barcode</button>
-      </form>
-      ${building?`<div class="banner"><p>Adding foods to <b>${esc(building.name||'a new recipe')}</b> (${building.items.length} so far). Pick a food and its amount.</p>
-        <button class="btn sm primary" data-act="buildDone">Done</button></div>`
-      :`<div class="row"><button class="btn sm ghost" data-act="quick">Quick add calories</button><button class="btn sm ghost" data-act="newFood">Create a food</button></div>`}
-      <div id="results" class="results">${resultsHtml()}</div>
-    </section>
-    <section class="panel stack">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
         ${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div>
       ${list.length?`<div class="entries">${entriesHtml(list)}</div>`
-        :`<p class="empty">Nothing logged yet.</p>`}
+        :`<p class="empty">Nothing logged yet.<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button></p>`}
     </section>
     <section class="panel stack">
       <h3>Weigh-in</h3>
       ${w?`<p>${fmtW(w.kg)} ${wUnit()}${w.fat!=null?` · ${fmt(w.fat,1)}% body fat`:''} <button class="btn sm ghost" data-goto="weight">Edit</button></p>`
         :weighForm(day,'todayWeigh')}
     </section>
+    ${adder?'':'<button class="btn primary fab" data-act="addFood" aria-label="Add food">+ Add food</button>'}
   </div>`;
+}
+/* ---------------- Add food overlay ---------------- */
+// Search, suggestions, scanning and recipes, kept apart from the day's report. Logging leaves it open for the next food.
+let adder=false;
+function adderLeftHtml(){
+  const t=targetsFor(day), tot=totalsFor(day);
+  return METRICS.filter(m=>m.k==='kcal'||m.k==='protein').map(m=>{
+    const left=t[m.k]-tot[m.k];
+    if(m.kind==='floor') return left<=0?`${m.n} reached`:`<b>${fmt(left)}</b> ${m.u} ${m.n.toLowerCase()} to go`;
+    return left<0?`<span class="over"><b>${fmt(-left)}</b> ${m.u} over</span>`:`<b>${fmt(left)}</b> ${m.u} left`;
+  }).join(' · ');
+}
+function adderModeHtml(){
+  return building?`<div class="banner"><p>Adding foods to <b>${esc(building.name||'a new recipe')}</b> (${building.items.length} so far). Pick a food and its amount.</p>
+      <button class="btn sm primary" data-act="buildDone">Done</button></div>`
+    :`<div class="row"><button class="btn sm ghost" data-act="quick">Quick add calories</button><button class="btn sm ghost" data-act="newFood">Create a food</button></div>`;
+}
+function renderAdder(){
+  const h=document.getElementById('adderHost');
+  document.body.classList.toggle('adding',adder);
+  if(!adder){h.innerHTML='';return}
+  h.innerHTML=`<div class="scrim adder-scrim" data-closeadder="1"></div>
+  <div class="adder" role="dialog" aria-modal="true" aria-labelledby="adderTitle">
+    <div class="ahead">
+      <div class="atitle"><h2 id="adderTitle">${building?'Add to recipe':day===todayKey()?'Add food':'Add to '+esc(dayLabel(day))}</h2>
+        <button class="x" data-closeadder="1" aria-label="Close">×</button></div>
+      <p class="left" id="adderLeft">${building?'':adderLeftHtml()}</p>
+      <form class="searchbar" id="searchForm" role="search" autocomplete="off">
+        <input type="search" id="foodQ" placeholder="Search foods, e.g. greek yogurt" value="${esc(search.q)}" aria-label="Search foods" enterkeyhint="search">
+        <button class="btn primary" type="button" data-act="scan">Scan barcode</button>
+      </form>
+    </div>
+    <div class="abody">
+      <div id="adderMode">${adderModeHtml()}</div>
+      <div id="results" class="results">${resultsHtml()}</div>
+    </div>
+  </div>`;
+}
+// After something is logged: new totals and suggestions, without disturbing the search box
+function refreshAdder(){
+  if(!adder) return;
+  const l=document.getElementById('adderLeft'), m=document.getElementById('adderMode');
+  if(l) l.innerHTML=building?'':adderLeftHtml();
+  if(m) m.innerHTML=adderModeHtml();
+  refreshResults();
+}
+function openAdder(focus){
+  if(!adder){adder=true; pushLayer('adder'); renderAdder(); render()}
+  if(focus){const q=document.getElementById('foodQ'); if(q) q.focus()}
+}
+function closeAdder(fromBack){
+  if(!adder) return;
+  adder=false; renderAdder(); render();
+  if(!fromBack) dropLayer('adder');
 }
 const entRow=(e,sub)=>`<div class="ent${sub?' sub':''}">
   <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${entryMeta(e)}</div></div>
@@ -1587,8 +1655,30 @@ function renderSheet(){
   if(first) first.focus({preventScroll:true});
   if(sheet.type==='scan') startScan();
 }
-function openSheet(s){stopScan(); sheet=s; renderSheet()}
-function closeSheet(){stopScan(); sheet=null; renderSheet()}
+function openSheet(s){stopScan(); if(!sheet) pushLayer('sheet'); sheet=s; renderSheet()}
+function closeSheet(fromBack){stopScan(); const was=sheet; sheet=null; renderSheet(); if(was&&!fromBack) dropLayer('sheet')}
+
+// The phone's back button closes the top layer (a sheet, then the Add food overlay) instead of leaving the app.
+// Each open layer has a history entry; closing one from a button steps back over it.
+const layers=[]; let backsPending=0, pushesWaiting=[];
+function pushLayer(k){
+  if(backsPending){pushesWaiting.push(k); return}   // pushing before a pending back lands would get undone by it
+  history.pushState({nh:k},''); layers.push(k);
+}
+function dropLayer(k){
+  const i=pushesWaiting.lastIndexOf(k); if(i>=0){pushesWaiting.splice(i,1); return}
+  if(layers[layers.length-1]!==k) return;
+  layers.pop(); backsPending++; history.back();
+}
+window.addEventListener('popstate',()=>{
+  if(backsPending){
+    if(--backsPending===0){const w=pushesWaiting; pushesWaiting=[]; w.forEach(pushLayer)}
+    return;
+  }
+  const k=layers.pop();
+  if(k==='sheet') closeSheet(true);
+  else if(k==='adder') closeAdder(true);
+});
 
 /* ---------------- Barcode scanning ---------------- */
 // Native BarcodeDetector where the browser has it (Chrome on Android); ZXing from a CDN elsewhere (iPhone Safari).
@@ -1775,6 +1865,8 @@ document.addEventListener('click',async e=>{
   const t=e.target.closest('button,[data-close]'); if(!t||t.getAttribute('type')==='submit') return;
   const d=t.dataset;
   if(d.close){closeSheet();return}
+  if(d.closeadder){closeAdder();return}
+  if(d.act==='addFood'){openAdder(matchMedia('(min-width:641px)').matches);return}
   if(d.tab){tab=d.tab;pendingDelete=null;try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();window.scrollTo(0,0);return}
   if(d.goto){tab=d.goto;render();window.scrollTo(0,0);return}
   if(d.day){day=addDays(day,+d.day);render();return}
@@ -1790,9 +1882,8 @@ document.addEventListener('click',async e=>{
   if(d.act==='newRecipe'){openSheet({type:'editRecipe',draft:{name:'',servings:1,items:[]}});return}
   if(d.editrecipe){const r=recipeById(d.editrecipe); if(r) openSheet({type:'editRecipe',draft:{id:r.id,name:r.name,servings:r.servings||1,items:r.items.map(i=>({...i}))}}); return}
   if(d.rmitem){syncDraft(); sheet.draft.items.splice(+d.rmitem,1); renderSheet(); return}
-  if(d.act==='recipeAddFoods'){syncDraft(); building=sheet.draft; closeSheet(); tab='today'; search.q=''; render(); window.scrollTo(0,0);
-    const q=document.getElementById('foodQ'); if(q) q.focus(); return}
-  if(d.act==='buildDone'){const dr=building; building=null; search.q=''; render(); openSheet({type:'editRecipe',draft:dr}); return}
+  if(d.act==='recipeAddFoods'){syncDraft(); building=sheet.draft; closeSheet(); search.q=''; closeAdder(); openAdder(true); return}
+  if(d.act==='buildDone'){const dr=building; building=null; search.q=''; closeAdder(); openSheet({type:'editRecipe',draft:dr}); return}
   if(d.rmrecipe){const r=recipeById(d.rmrecipe); dropRecord('recipes',d.rmrecipe); toast(`Removed ${r?r.name:'recipe'}. Logged entries stay.`); if(sheet) closeSheet(); render(); return}
   if(d.editent){const x=state.entries.find(e=>e.id===d.editent), f=x&&x.foodId&&foodById(x.foodId);
     openSheet(f?{type:'food',food:f,entryId:x.id}:{type:'quick',entryId:d.editent}); return}
@@ -1806,7 +1897,7 @@ document.addEventListener('click',async e=>{
   if(d.act==='snooze'){lsSet('nh.snooze',todayKey()); render(); return}
   if(d.range){range=d.range; try{sessionStorage.setItem('nh.range',range)}catch(_){}; render(); return}
   if(d.act==='quick'){openSheet({type:'quick'});return}
-  if(d.act==='newFood'){const log=tab==='today'; openSheet({type:'editFood',food:{name:log?search.q.trim():''},then:log?'log':null});return}
+  if(d.act==='newFood'){const log=adder; openSheet({type:'editFood',food:{name:log?search.q.trim():''},then:log?'log':null});return}
   if(d.act==='editThisFood'){openSheet({type:'editFood',food:sheet.food,then:'log',entryId:sheet.entryId});return}
   if(d.editfood){openSheet({type:'editFood',food:foodById(d.editfood)});return}
   if(d.rmfood){const x=foodById(d.rmfood), rs=usedInRecipe(d.rmfood); dropRecord('foods',d.rmfood);
@@ -1829,7 +1920,7 @@ document.addEventListener('click',async e=>{
     catch(_){try{await navigator.clipboard.writeText(data);toast('Backup copied to clipboard')}catch(__){toast('Export isn’t available here')}}
     return}
 });
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sheet) closeSheet()});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape') return; if(sheet) closeSheet(); else if(adder) closeAdder()});
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
@@ -1865,8 +1956,10 @@ function render(){
   renderedToday=todayKey();
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));
   const v={today:viewToday,weight:viewWeight,body:viewBody,trends:viewTrends,foods:viewFoods,settings:viewSettings}[tab]||viewToday;
-  document.getElementById('main').innerHTML=v();
+  const m=document.getElementById('main');
+  m.innerHTML=v(); m.classList.toggle('has-fab',tab==='today'&&!adder);
   if(tab==='trends') drawCharts();
+  refreshAdder();
 }
 
 // Home-screen shortcuts open the app with ?do=log|scan|weigh
@@ -1877,8 +1970,8 @@ if(launch){
   try{sessionStorage.setItem('nh.tab',tab)}catch(_){}
 }
 render();
-if(launch==='log'){const q=document.getElementById('foodQ'); if(q) q.focus()}
-if(launch==='scan') openSheet({type:'scan'});
+if(launch==='log') openAdder(true);
+if(launch==='scan'){openAdder(false); openSheet({type:'scan'})}
 if(launch==='weigh'){const w=document.querySelector('#weighForm [name=weight]'); if(w) w.focus()}
 showDriveStatus();
 if(driveConfigured()&&Drive.on){
@@ -1887,7 +1980,7 @@ if(driveConfigured()&&Drive.on){
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&driveLive()) driveSync(false)});
 }
 // The day rolls over while the app stays open on a phone
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'||day!==renderedToday||day===todayKey()||sheet) return; day=todayKey(); render()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'||day!==renderedToday||day===todayKey()||sheet||adder) return; day=todayKey(); render()});
 </script>
 
 <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{})</script>
