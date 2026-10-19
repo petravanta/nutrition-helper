@@ -707,11 +707,14 @@ function macrosFor(kcal){
   return {kcal,protein,fat,carbs:Math.max(0,Math.round((kcal-protein*4-fat*9)/4)),sodium:cur.sodium};
 }
 const goalReached=g=>{const kg=model().trendNow; return kg!=null&&(g.ratePct<0?kg<=g.targetKg:g.ratePct>0?kg>=g.targetKg:false)};
-// The planned path from where the goal started, at the pace chosen then, flat once the target is reached
+// The planned path from where the goal started, at the pace chosen then, flat once the target is reached.
+// A goal set before any weigh-in starts from the first trend weight after it.
 function setpointOn(d){
-  const g=state.settings.goal; if(!g||!g.startDate||d<g.startDate||g.startKg==null) return null;
-  const w=g.startKg+g.startKg*g.ratePct/100*daysBetween(g.startDate,d)/7;
-  return g.ratePct<0?Math.max(w,g.targetKg):g.ratePct>0?Math.min(w,g.targetKg):g.startKg;
+  const g=state.settings.goal; if(!g||!g.startDate||d<g.startDate) return null;
+  let kg=g.startKg, from=g.startDate;
+  if(kg==null){const r=model().days.find(r=>r.date>=g.startDate&&r.trend!=null); if(!r||d<r.date) return null; kg=r.trend; from=r.date}
+  const w=kg+kg*g.ratePct/100*daysBetween(from,d)/7;
+  return g.ratePct<0?Math.max(w,g.targetKg):g.ratePct>0?Math.min(w,g.targetKg):kg;
 }
 function proposal(){
   const g=state.settings.goal; if(!g) return null;
@@ -1070,7 +1073,7 @@ function goalPanel(){
   const exp=M.tdeeNow!=null?`<p class="small">Expenditure: <b class="mono">${fmt(M.tdeeNow)} kcal</b> a day, ${src}.</p>`
     :`<p class="small muted">To estimate your expenditure, add a weigh-in and fill in your profile in Settings, or log food and weigh in for about three weeks.</p>`;
   if(!g) return `<section class="panel stack"><h3>Goal</h3>${exp}
-    <div class="row"><button class="btn sm primary" data-act="goal"${M.tdeeNow==null?' disabled':''}>Set a goal weight</button></div></section>`;
+    <div class="row"><button class="btn sm primary" data-act="goal">Set a goal weight</button></div></section>`;
   const t=goalTiming(g.targetKg,g.ratePct), last=lastCheckin();
   return `<section class="panel stack"><h3>Goal</h3>
     <p><b>${fmtW(g.targetKg)} ${wUnit()}</b> · ${paceName(g.ratePct)}${goalReached(g)?' · <b>reached</b>':t?` · on pace for <b>${esc(parseDay(t.date).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}))}</b>`:''}</p>
@@ -1084,7 +1087,8 @@ function sheetGoal(){
   const target=sheet.targetDisp??(g.targetKg!=null?+toDisp(g.targetKg).toFixed(1):'');
   const pp=g.proteinPerKg||1.8, fatPct=g.fatPct||30;
   return `<h2>Goal weight</h2>
-    <p class="small muted">Trend weight now: <b>${fmtW(M.trendNow)} ${wUnit()}</b>. Expenditure: <b>${fmt(M.tdeeNow)} kcal</b> a day.</p>
+    <p class="small muted">${M.trendNow!=null?`Trend weight now: <b>${fmtW(M.trendNow)} ${wUnit()}</b>.`:'No weigh-ins yet.'} ${M.tdeeNow!=null?`Expenditure: <b>${fmt(M.tdeeNow)} kcal</b> a day.`
+      :'Your calorie budget follows once expenditure is known: add a weigh-in and fill in your profile in Settings, or log food and weigh in for about three weeks.'}</p>
     <form class="stack" id="goalForm" autocomplete="off">
       <label class="field">Target weight (${wUnit()})<input type="number" id="gTarget" name="target" inputmode="decimal" step="0.1" min="0" value="${target}" required></label>
       <div class="field">Pace<div class="paces" id="gPaces">${pacesHtml(num(target),g.ratePct)}</div></div>
@@ -1098,13 +1102,14 @@ function sheetGoal(){
 }
 function pacesHtml(targetDisp,current){
   const M=model(), kg=M.trendNow, tKg=targetDisp?fromDisp(targetDisp):null;
-  const dir=tKg==null||Math.abs(tKg-kg)<0.25?0:tKg<kg?-1:1;
-  const opts=PACES.filter(r=>dir===0?r===0:Math.sign(r)===dir);
-  const sel=opts.includes(current)?current:dir<0?-0.5:dir>0?0.25:0;
+  // Without a weigh-in there's no telling which way the target is, so every pace is offered
+  const dir=kg==null?null:tKg==null||Math.abs(tKg-kg)<0.25?0:tKg<kg?-1:1;
+  const opts=PACES.filter(r=>dir==null||(dir===0?r===0:Math.sign(r)===dir));
+  const sel=opts.includes(current)?current:dir==null||dir<0?-0.5:dir>0?0.25:0;
   return opts.map(r=>{const p=planFor(r), t=tKg!=null?goalTiming(tKg,r):null;
     return `<label class="pace"><input type="radio" name="pace" value="${r}"${r===sel?' checked':''}>
       <span class="pn">${paceName(r)}</span><span class="pk">${p?fmt(p.kcal):'–'}<br><span class="src-tag">kcal/day</span></span>
-      <span class="pd">${r?perWeek(p?p.weeklyKg:0)+(t?` · reach it ${esc(parseDay(t.date).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}))} (${Math.ceil(t.weeks)} weeks)`:''):'Hold your trend weight'}${p&&p.clamped?' · held at a safe minimum':''}</span></label>`}).join('');
+      <span class="pd">${r?(p?perWeek(p.weeklyKg):'')+(t?` · reach it ${esc(parseDay(t.date).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}))} (${Math.ceil(t.weeks)} weeks)`:''):'Hold your trend weight'}${p&&p.clamped?' · held at a safe minimum':''}</span></label>`}).join('');
 }
 function viewFoods(){
   const list=[...state.foods].sort((a,b)=>a.name.localeCompare(b.name));
@@ -1738,7 +1743,7 @@ document.addEventListener('submit',e=>{
     const lb=wUnit()==='lb', pp=num(f.get('protein'))||(lb?0.8:1.8);
     state.settings.goal={targetKg:+fromDisp(t).toFixed(3),ratePct:r,startDate:todayKey(),startKg:M.trendNow,proteinPerKg:lb?pp/KG_PER_LB:pp,fatPct:num(f.get('fatPct'))||30};
     const p=proposal(); if(p) applyProposal(p); else touchSettings();
-    closeSheet(); toast(p?`Goal set. Daily budget is now ${fmt(p.targets.kcal)} kcal.`:'Goal set'); render(); return}
+    closeSheet(); toast(p?`Goal set. Daily budget is now ${fmt(p.targets.kcal)} kcal.`:'Goal set. Your budget follows once expenditure is known.'); render(); return}
   if(id==='profileForm'){
     const h=num(f.get('height')), by=num(f.get('birthYear'));
     state.settings.profile={sex:f.get('sex')||'',birthYear:by||null,heightCm:h?(wUnit()==='lb'?h*2.54:h):null,activity:num(f.get('activity'))||1.375};
