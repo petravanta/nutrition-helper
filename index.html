@@ -222,6 +222,15 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .sug .food{border-top:0}
 .add-btn{white-space:nowrap}
 .rgrp .ent.sub{padding-left:14px;border-top-style:dashed}
+/* the day's report, by part of the day or by a nutrient */
+.ent .kc small{display:block;text-align:right;font-size:11px;color:var(--faint)}
+.ent .kc.by{font-weight:600;text-align:right}
+.ent .kc.by small{font-weight:400}
+.ehead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:12px 0 2px;padding-bottom:4px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.ehead:first-child{margin-top:0}
+.ehead span{font-family:var(--f-mono);text-transform:none;letter-spacing:0;font-weight:500}
+.ehead+.ent,.ehead+.rgrp .ent:first-child{border-top:0}
+.sortpick{max-width:150px;padding:4px 8px;font-size:13px}
 /* moving an entry to another day or time */
 .move{border-top:1px solid var(--line);padding-top:14px;margin-top:6px}
 .move h3{margin:0 0 4px}
@@ -1093,7 +1102,7 @@ function viewToday(){
     ${microsPanel()}
     <section class="panel stack">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
-        ${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div>
+        <div class="row">${list.length?sortPicker():''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
       ${list.length?`<div class="entries">${entriesHtml(list)}</div>`
         :`<p class="empty">Nothing logged yet.<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button></p>`}
     </section>
@@ -1159,22 +1168,63 @@ function closeAdder(fromBack){
   adder=false; renderAdder(); render();
   if(!fromBack) dropLayer('adder');
 }
-const entRow=(e,sub)=>`<div class="ent${sub?' sub':''}">
-  <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${sub?'':timeMeta(e)}${entryMeta(e)}</div></div>
-  <span class="kc">${fmt(e.kcal)} kcal</span>
+// The day's report reads in time order, grouped by the parts of the day, or by one nutrient, biggest first.
+// The choice is kept on this phone; a nutrient that's no longer offered falls back to time.
+let listSort=(()=>{try{return localStorage.getItem('nh.listSort')||'time'}catch(_){return 'time'}})();
+const sortOptions=()=>[...MACROS.map(m=>m.k),...state.settings.micros.map(c=>c.k)];
+const curSort=()=>listSort!=='time'&&sortOptions().includes(listSort)&&NUT[listSort]?listSort:'time';
+function sortPicker(){
+  const k=curSort();
+  return `<select class="sortpick" id="listSort" aria-label="Order foods by">
+    <option value="time"${k==='time'?' selected':''}>By time</option>
+    <optgroup label="Most first">${sortOptions().filter(x=>NUT[x]).map(x=>`<option value="${x}"${k===x?' selected':''}>${NUT[x].n}</option>`).join('')}</optgroup></select>`;
+}
+const nutVal=(k,v)=>isMetric(k)?fmt(v):fmtNut(v);
+const pctOf=(v,tot)=>tot>0?`${Math.round(100*v/tot)}%`:'';
+// The right-hand figure: calories by time, or the chosen nutrient with its share of the day
+function rowFig(k,v,kcal,tot){
+  if(k==='time') return `<span class="kc">${fmt(kcal)} kcal</span>`;
+  return `<span class="kc by">${nutVal(k,v)} ${NUT[k].u}<small>${pctOf(v,tot)}</small></span>`;
+}
+const entRow=(e,sub,k='time',tot=0)=>`<div class="ent${sub?' sub':''}">
+  <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${sub?'':timeMeta(e)}${k!=='time'&&k!=='kcal'?`${fmt(e.kcal)} kcal · `:''}${entryMeta(e)}</div></div>
+  ${rowFig(k,entryNut(e,k),e.kcal,tot)}
   <button class="x-btn" data-rment="${e.id}" aria-label="Remove ${esc(e.name)}">×</button></div>`;
 // A recipe log shows as one line with its foods under it, where each can still be changed or removed
+function groupHtml(items,k,tot){
+  const e=items[0], g=e.recipe.group, kc=items.reduce((a,x)=>a+(Number(x.kcal)||0),0);
+  const sum=n=>items.reduce((a,x)=>a+entryNut(x,n),0), t=n=>fmt(sum(n));
+  const subs=k==='time'?items:[...items].sort((a,b)=>entryNut(b,k)-entryNut(a,k));
+  return `<div class="rgrp"><div class="ent"><div><button class="nm" data-movegroup="${esc(g)}">${esc(e.recipe.name)}</button><div class="meta">${timeMeta(e)}${servingsText(e.recipe.servings)}${k!=='time'&&k!=='kcal'?` · ${fmt(kc)} kcal`:''} · P ${t('protein')} · F ${t('fat')} · C ${t('carbs')}${microsMeta(sum)}</div></div>
+    ${rowFig(k,sum(k),kc,tot)}<button class="x-btn" data-rmgroup="${esc(g)}" aria-label="Remove ${esc(e.recipe.name)}">×</button></div>
+    ${subs.map(x=>entRow(x,true,k,tot)).join('')}</div>`;
+}
+// Each food on its own, and each recipe log as one unit
+function entryUnits(list){
+  const groups=new Map(), units=[];
+  for(const e of list){
+    if(!e.recipe){units.push({items:[e]}); continue}
+    let u=groups.get(e.recipe.group); if(!u){groups.set(e.recipe.group,u={items:[]}); units.push(u)}
+    u.items.push(e);
+  }
+  return units;
+}
+const unitHtml=(u,k,tot)=>u.items[0].recipe?groupHtml(u.items,k,tot):entRow(u.items[0],false,k,tot);
+const unitSum=(u,k)=>u.items.reduce((a,x)=>a+entryNut(x,k),0);
 function entriesHtml(list){
-  const done=new Set();
-  return list.map(e=>{
-    if(!e.recipe) return entRow(e);
-    const g=e.recipe.group; if(done.has(g)) return ''; done.add(g);
-    const items=list.filter(x=>x.recipe&&x.recipe.group===g), kc=items.reduce((a,x)=>a+(Number(x.kcal)||0),0);
-    const t=k=>fmt(items.reduce((a,x)=>a+(Number(x[k])||0),0));
-    return `<div class="rgrp"><div class="ent"><div><button class="nm" data-movegroup="${esc(g)}">${esc(e.recipe.name)}</button><div class="meta">${timeMeta(e)}${servingsText(e.recipe.servings)} · P ${t('protein')} · F ${t('fat')} · C ${t('carbs')}${microsMeta(k=>items.reduce((a,x)=>a+entryNut(x,k),0))}</div></div>
-      <span class="kc">${fmt(kc)} kcal</span><button class="x-btn" data-rmgroup="${esc(g)}" aria-label="Remove ${esc(e.recipe.name)}">×</button></div>
-      ${items.map(x=>entRow(x,true)).join('')}</div>`;
-  }).join('');
+  const k=curSort(), units=entryUnits(list);
+  if(k!=='time'){
+    const tot=units.reduce((a,u)=>a+unitSum(u,k),0);
+    return units.sort((a,b)=>unitSum(b,k)-unitSum(a,k)).map(u=>unitHtml(u,k,tot)).join('');
+  }
+  // By time: under each part of the day, in the order eaten from the part's start; unknown times last
+  const h=dayParts(), parts=h.map(()=>[]), unknown=[];
+  const hourIn=t=>t.getHours()+t.getMinutes()/60;
+  for(const u of units){const t=entryTime(u.items[0]); t?parts[partOf(hourIn(t),h)].push(u):unknown.push(u)}
+  const since=(u,i)=>(hourIn(entryTime(u.items[0]))-h[i]+24)%24;
+  const sec=(name,us)=>!us.length?'':`<div class="ehead">${name}<span>${fmt(us.reduce((a,u)=>a+unitSum(u,'kcal'),0))} kcal</span></div>${us.map(u=>unitHtml(u,k,0)).join('')}`;
+  if(!parts.some(p=>p.length)) return units.map(u=>unitHtml(u,k,0)).join('');
+  return parts.map((p,i)=>sec(esc(partName(h,i)),p.sort((a,b)=>since(a,i)-since(b,i)))).join('')+sec('Time not known',unknown);
 }
 // An entry's time only says when it was eaten if it was logged on that day, or set when moving it
 function entryTime(e){const ts=e.ts&&new Date(e.ts); return ts&&!isNaN(ts)&&dkey(ts)===e.date?ts:null}
@@ -2351,6 +2401,7 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape') return; if(sheet) c
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
+  if(t.id==='listSort'){listSort=t.value; try{localStorage.setItem('nh.listSort',listSort)}catch(_){} render(); return}
   if(t.id==='addMicro'&&t.value){readMicrosForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
     touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
   if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); drawLeaders(); return}
