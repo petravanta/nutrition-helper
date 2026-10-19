@@ -140,7 +140,7 @@ body.adding{overflow:hidden}
   .adder-scrim{display:none}
 }
 @media (prefers-reduced-motion:no-preference){.adder{animation:rise .16s ease-out}@keyframes rise{from{opacity:.3;margin-top:16px}}}
-input[type=date],input[type=search]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;font-weight:500;min-width:0}
+input[type=date],input[type=time],input[type=search]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;font-weight:500;min-width:0}
 .daybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .daybar h2{margin-right:auto}
 .nav-btn{width:34px;height:34px;padding:0;display:inline-grid;place-items:center;font-size:18px;line-height:1}
@@ -222,6 +222,10 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .sug .food{border-top:0}
 .add-btn{white-space:nowrap}
 .rgrp .ent.sub{padding-left:14px;border-top-style:dashed}
+/* moving an entry to another day or time */
+.move{border-top:1px solid var(--line);padding-top:14px;margin-top:6px}
+.move h3{margin:0 0 4px}
+.move .row input{flex:1 1 130px;min-width:0}
 .picks{display:flex;flex-direction:column;gap:2px}
 .mform label.field .was{font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint);font-family:var(--f-mono);min-height:1.3em}
 .mform label.field .was b{font-weight:600;color:var(--accent)}
@@ -1156,7 +1160,7 @@ function closeAdder(fromBack){
   if(!fromBack) dropLayer('adder');
 }
 const entRow=(e,sub)=>`<div class="ent${sub?' sub':''}">
-  <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${entryMeta(e)}</div></div>
+  <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${sub?'':timeMeta(e)}${entryMeta(e)}</div></div>
   <span class="kc">${fmt(e.kcal)} kcal</span>
   <button class="x-btn" data-rment="${e.id}" aria-label="Remove ${esc(e.name)}">×</button></div>`;
 // A recipe log shows as one line with its foods under it, where each can still be changed or removed
@@ -1167,10 +1171,53 @@ function entriesHtml(list){
     const g=e.recipe.group; if(done.has(g)) return ''; done.add(g);
     const items=list.filter(x=>x.recipe&&x.recipe.group===g), kc=items.reduce((a,x)=>a+(Number(x.kcal)||0),0);
     const t=k=>fmt(items.reduce((a,x)=>a+(Number(x[k])||0),0));
-    return `<div class="rgrp"><div class="ent"><div><span class="nm">${esc(e.recipe.name)}</span><div class="meta">${servingsText(e.recipe.servings)} · P ${t('protein')} · F ${t('fat')} · C ${t('carbs')}${microsMeta(k=>items.reduce((a,x)=>a+entryNut(x,k),0))}</div></div>
+    return `<div class="rgrp"><div class="ent"><div><button class="nm" data-movegroup="${esc(g)}">${esc(e.recipe.name)}</button><div class="meta">${timeMeta(e)}${servingsText(e.recipe.servings)} · P ${t('protein')} · F ${t('fat')} · C ${t('carbs')}${microsMeta(k=>items.reduce((a,x)=>a+entryNut(x,k),0))}</div></div>
       <span class="kc">${fmt(kc)} kcal</span><button class="x-btn" data-rmgroup="${esc(g)}" aria-label="Remove ${esc(e.recipe.name)}">×</button></div>
       ${items.map(x=>entRow(x,true)).join('')}</div>`;
   }).join('');
+}
+// An entry's time only says when it was eaten if it was logged on that day, or set when moving it
+function entryTime(e){const ts=e.ts&&new Date(e.ts); return ts&&!isNaN(ts)&&dkey(ts)===e.date?ts:null}
+const clock=d=>d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+const timeMeta=e=>{const t=entryTime(e); return t?`${clock(t)} · `:''};
+// Moves entries (one, or all the foods of a recipe log) to another day. With a time, they get that time;
+// without one, a known time of day comes along and an unknown one stays unknown.
+function moveEntries(ids,date,time){
+  const list=ids.map(id=>state.entries.find(x=>x.id===id)).filter(Boolean);
+  list.sort((a,b)=>(a.ts||'')<(b.ts||'')?-1:1).forEach((e,i)=>{
+    const t=entryTime(e);
+    if(time){const [h,m]=time.split(':').map(Number), d=parseDay(date); d.setHours(h,m,0,i); e.ts=d.toISOString()}
+    else if(t){const d=parseDay(date); d.setHours(t.getHours(),t.getMinutes(),t.getSeconds(),t.getMilliseconds()); e.ts=d.toISOString()}
+    e.date=date; putRecord('entries',e);
+  });
+  return list.length;
+}
+// The "When" part of an entry's sheet: one tap to the day before or after, or pick a date and time
+function moveHtml(e){
+  const t=entryTime(e);
+  return `<div class="move stack"><h3>When</h3>
+    <p class="small muted">${esc(dayLabel(e.date))}${t?' at '+esc(clock(t)):', time not known'}</p>
+    <div class="row"><button class="btn sm" type="button" data-moveby="-1">← Day before</button><button class="btn sm" type="button" data-moveby="1">Day after →</button></div>
+    <form class="row" id="moveForm" autocomplete="off">
+      <input type="date" name="date" value="${e.date}" required aria-label="Date">
+      <input type="time" name="time" value="${t?pad(t.getHours())+':'+pad(t.getMinutes()):''}" aria-label="Time">
+      <button class="btn sm" type="submit">Move</button></form></div>`;
+}
+// Which entries a sheet moves: the one being edited, or a whole recipe log
+function sheetMoveIds(){
+  if(!sheet) return [];
+  if(sheet.group) return state.entries.filter(x=>x.recipe&&x.recipe.group===sheet.group).map(x=>x.id);
+  return sheet.entryId?[sheet.entryId]:[];
+}
+function doMove(date,time){
+  const ids=sheetMoveIds(), first=state.entries.find(x=>x.id===ids[0]); if(!first) return;
+  const what=first.recipe&&sheet.group?first.recipe.name:first.name;
+  const t0=entryTime(first);
+  if(date===first.date&&(!time||t0&&time===pad(t0.getHours())+':'+pad(t0.getMinutes()))){toast('Pick another day or a time.');return}
+  moveEntries(ids,date,time);
+  const t=time&&entryTime(first);
+  toast(`Moved ${what} to ${dayLabel(date).replace(/^(Today|Yesterday|Tomorrow)$/,s=>s.toLowerCase())}${t?' at '+clock(t):''}`);
+  closeSheet(); render();
 }
 function checkinBanner(){
   const p=proposal(); if(!p) return '';
@@ -1864,7 +1911,7 @@ async function startImport(file){
 
 /* ---------------- Sheets ---------------- */
 // sheet: {type:'food', food, entryId?} | {type:'scan'} | {type:'quick', entryId?} | {type:'editFood', food, then?}
-//      | {type:'recipe', recipe} | {type:'editRecipe', draft} | {type:'saveRecipe'}
+//      | {type:'recipe', recipe} | {type:'editRecipe', draft} | {type:'saveRecipe'} | {type:'move', group}
 function sheetFood(){
   const {food:f,entryId}=sheet, e=entryId&&state.entries.find(x=>x.id===entryId);
   const p=e&&e.unit&&unitOptions(f).includes(e.unit)?{unit:e.unit,qty:e.qty}:defaultPortion(f);
@@ -1881,7 +1928,8 @@ function sheetFood(){
         ${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
     </form>
     <p class="note">${per100Summary(f)}${f.servings&&f.servings.length?'':'. No serving sizes listed, so log it by weight or volume.'}</p>
-    <div class="row"><button class="btn sm ghost" data-act="editThisFood">Edit food</button></div>`;
+    <div class="row"><button class="btn sm ghost" data-act="editThisFood">Edit food</button></div>
+    ${e?moveHtml(e):''}`;
 }
 function previewHtml(f,qty,unit){
   const n=nutrientsFor(f,baseAmount(f,num(qty)||0,unit));
@@ -1967,7 +2015,18 @@ function sheetQuick(){
       ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${e?+fmtQty(e[m.k]||0):''}"></label>`).join('')}
       ${extraMicros().map(x=>`<label class="field">${x.n} (${x.u})<input type="number" name="${x.k}" inputmode="decimal" step="any" min="0" value="${e&&e.more&&e.more[x.k]?+fmtQty(e.more[x.k]):''}"></label>`).join('')}
       <div class="row full"><button class="btn primary" type="submit">${e?'Save':'Add'}</button>${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
-    </form>`;
+    </form>
+    ${e?moveHtml(e):''}`;
+}
+// A logged recipe as a whole: move it or remove it; its foods are edited from their own lines
+function sheetMove(){
+  const ids=sheetMoveIds(), items=ids.map(id=>state.entries.find(x=>x.id===id)), e=items[0];
+  if(!e) return '<h2>Nothing to move</h2><p class="small muted">This log has been removed.</p>';
+  const kc=items.reduce((a,x)=>a+(Number(x.kcal)||0),0);
+  return `<h2>${esc(e.recipe.name)}</h2>
+    <p class="small muted">${servingsText(e.recipe.servings)} · ${fmt(kc)} kcal · ${items.length} food${items.length===1?'':'s'}. Tap a food on Today to change its amount.</p>
+    ${moveHtml(e)}
+    <div class="row"><button class="btn ghost danger" type="button" data-rmgroup="${esc(sheet.group)}">Remove</button></div>`;
 }
 function sheetEditFood(){
   const f=sheet.food||{}, s=(f.servings||[])[0], base=f.base||'g', amt=s?s.amt:100;
@@ -1996,7 +2055,7 @@ function renderSheet(){
   const h=document.getElementById('sheetHost');
   if(!sheet){h.innerHTML='';return}
   const body={food:sheetFood,quick:sheetQuick,editFood:sheetEditFood,scan:sheetScan,goal:sheetGoal,import:sheetImport,
-    recipe:sheetRecipe,editRecipe:sheetEditRecipe,saveRecipe:sheetSaveRecipe}[sheet.type]();
+    recipe:sheetRecipe,editRecipe:sheetEditRecipe,saveRecipe:sheetSaveRecipe,move:sheetMove}[sheet.type]();
   h.innerHTML=`<div class="scrim" data-close="1"></div><div class="drawer" role="dialog" aria-modal="true"><button class="x" data-close="1" aria-label="Close">×</button>${body}</div>`;
   const first=h.querySelector('#pQty,#quickAdd input,#foodForm input,#gTarget,#rQty,#saveRecipeForm input');
   if(first) first.focus({preventScroll:true});
@@ -2128,6 +2187,7 @@ document.addEventListener('submit',e=>{
   e.preventDefault();
   const f=new FormData(e.target), id=e.target.id;
   if(id==='searchForm'){clearTimeout(search.timer); runSearch(); return}
+  if(id==='moveForm'){const d=f.get('date'); if(!d){toast('Pick a date.');return} doMove(d,f.get('time')||null); return}
   if(id==='portionForm'){
     const qty=num(f.get('qty')), unit=f.get('unit'); if(!qty||qty<=0){toast('Enter an amount.');return}
     if(building&&!sheet.entryId){const food=keepFood(sheet.food); building.items.push({foodId:food.id,qty,unit});
@@ -2234,8 +2294,10 @@ document.addEventListener('click',async e=>{
   if(d.pickrecipe){const r=recipeById(d.pickrecipe); if(r) openSheet({type:'recipe',recipe:r}); return}
   if(d.quickfood){const f=foodById(d.quickfood); if(!f) return; const p=defaultPortion(f), rec=logPortion(f,p.qty,p.unit); toast(`Added ${itemText(f,p)} of ${rec.name}`); render(); return}
   if(d.quickrecipe){const r=recipeById(d.quickrecipe); if(!r) return; const s=r.lastServings||1; logRecipe(r,s); toast(`Added ${servingsText(s)} of ${r.name}`); render(); return}
+  if(d.movegroup){openSheet({type:'move',group:d.movegroup});return}
+  if(d.moveby){const e=state.entries.find(x=>x.id===sheetMoveIds()[0]); if(e) doMove(addDays(e.date,+d.moveby),null); return}
   if(d.rmgroup){const ids=state.entries.filter(x=>x.recipe&&x.recipe.group===d.rmgroup).map(x=>x.id), x=state.entries.find(x=>x.id===ids[0]);
-    state.entries=state.entries.filter(x=>!ids.includes(x.id)); state.deleted.push(...ids); saveLocal(); toast(`Removed ${x?x.recipe.name:'recipe'}`); render(); return}
+    state.entries=state.entries.filter(x=>!ids.includes(x.id)); state.deleted.push(...ids); saveLocal(); toast(`Removed ${x?x.recipe.name:'recipe'}`); if(sheet) closeSheet(); render(); return}
   if(d.act==='saveRecipe'){openSheet({type:'saveRecipe'});return}
   if(d.act==='newRecipe'){openSheet({type:'editRecipe',draft:{name:'',servings:1,items:[]}});return}
   if(d.editrecipe){const r=recipeById(d.editrecipe); if(r) openSheet({type:'editRecipe',draft:{id:r.id,name:r.name,servings:r.servings||1,items:r.items.map(i=>({...i}))}}); return}
