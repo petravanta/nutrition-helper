@@ -193,6 +193,14 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .wrow:first-child{border-top:0}
 .wrow .d{font-size:13px;color:var(--muted)}
 .wrow .v{font-family:var(--f-mono)}
+.tod{display:flex;gap:3px;align-items:flex-end}
+.tod span{display:flex;flex-direction:column;align-items:center;gap:2px;width:15px}
+.tod i{display:block;width:11px;border-radius:2px 2px 0 0;background:var(--c-a);min-height:1px}
+.tod i.z{background:var(--line)}
+.tod b{font:500 9px/1 var(--f-mono);color:var(--faint)}
+.rlist .ent{grid-template-columns:minmax(0,1fr) auto auto auto}
+.dpset{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.dpset:first-child{border-top:0}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
 .seg button{border:0;background:var(--surface);padding:5px 12px;font-size:13px;font-weight:600;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
@@ -461,6 +469,7 @@ const LS_KEY='nutritionHelper.v1';
 const uid6=()=>Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);
 const nowIso=()=>new Date().toISOString();
 // Settings change as a whole (newest wins on merge); entries, weigh-ins and foods are records merged by id.
+const DEFAULT_DAY_PARTS=[2,8,14,20];
 function defaultSettings(){return{
   weightUnit:'lb',
   unitPrefs:{mass:'g',volume:'ml'},   // last weight and volume unit used when logging, reused for every food
@@ -470,6 +479,7 @@ function defaultSettings(){return{
   measureSites:null,   // which body measurements to show; null is the default set
   micros:DEFAULT_MICROS(),   // micronutrients shown on Today, with optional limits (see Micros on Today)
   weightOverlay:null,  // measurements drawn on the weight chart, on their own axis; null shows waist
+  dayParts:[...DEFAULT_DAY_PARTS],   // start hours of the parts of the day the Foods page breaks usage into
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
@@ -639,6 +649,48 @@ function rememberLookup(f){
   return rec;
 }
 const lastTouched=f=>[f.lastUsed||'',f.seen||''].sort().pop();
+// Parts of the day: each starts at an hour in settings.dayParts and runs to the next one, the last wrapping past midnight
+function dayParts(){
+  const h=[...new Set((state.settings.dayParts||DEFAULT_DAY_PARTS).map(Number).filter(x=>x>=0&&x<24))].sort((a,b)=>a-b);
+  return h.length>=2?h:DEFAULT_DAY_PARTS;
+}
+const hourName=h=>h===0?'midnight':h===12?'noon':`${h%12} ${h<12?'AM':'PM'}`;
+const hourShort=h=>`${h%12||12}${h<12?'a':'p'}`;
+function partName(h,i){
+  const a=h[i], b=h[(i+1)%h.length], same=a!==0&&a!==12&&b!==0&&b!==12&&(a<12)===(b<12);
+  return same?`${a%12||12}–${hourName(b)}`:`${hourName(a)}–${hourName(b)}`;
+}
+const partOf=(hour,h)=>{let i=h.length-1; for(let j=0;j<h.length;j++) if(hour>=h[j]) i=j; return i};
+// How often each food and recipe has been logged, when last, and in which part of the day. Only logs made on the day
+// eaten tell the time; a recipe counts once per log, and each of its foods counts too. Imported daily totals don't count.
+function usageStats(){
+  const h=dayParts(), st=new Map(), groups=new Set();
+  const add=(key,e)=>{
+    let s=st.get(key); if(!s) st.set(key,s={n:0,last:'',parts:h.map(()=>0)});
+    s.n++; if(e.date>s.last) s.last=e.date;
+    const ts=e.ts&&new Date(e.ts);
+    if(ts&&!isNaN(ts)&&dkey(ts)===e.date) s.parts[partOf(ts.getHours()+ts.getMinutes()/60,h)]++;
+  };
+  for(const e of state.entries){
+    if(e.imported) continue;
+    if(e.foodId) add('f:'+e.foodId,e);
+    if(e.recipe&&!groups.has(e.recipe.group)){groups.add(e.recipe.group); add('r:'+e.recipe.id,e)}
+  }
+  return st;
+}
+function usageLine(s){
+  if(!s) return 'Not logged yet';
+  const ago=Math.round((parseDay(todayKey())-parseDay(s.last))/864e5);
+  return `${s.n}× · last ${ago<2?dayLabel(s.last).toLowerCase():ago<14?ago+' days ago':esc(dayLabel(s.last))}`;
+}
+// A small column per part of the day, scaled to its busiest part
+function partsChart(s){
+  if(!s) return '';
+  const h=dayParts(), max=Math.max(...s.parts), tot=s.parts.reduce((a,b)=>a+b,0);
+  const label=tot?h.map((_,i)=>`${partName(h,i)}: ${s.parts[i]}`).join(', '):'No time of day known';
+  return `<div class="tod" role="img" aria-label="When it's eaten. ${label}" title="${label}">${h.map((x,i)=>
+    `<span><i class="${s.parts[i]?'':'z'}" style="height:${tot?Math.max(1,Math.round(22*s.parts[i]/max)):1}px"></i><b>${hourShort(x)}</b></span>`).join('')}</div>`;
+}
 // A recipe: {id, name, servings (how many it makes), items:[{foodId, qty, unit}], lastServings, uses, lastUsed}.
 // It logs as its foods, scaled by the servings eaten, so every nutrient stays tracked per food.
 const recipeById=id=>state.recipes.find(r=>r.id===id);
@@ -1336,22 +1388,31 @@ function pacesHtml(targetDisp,current){
       <span class="pn">${paceName(r)}</span><span class="pk">${p?fmt(p.kcal):'–'}<br><span class="src-tag">kcal/day</span></span>
       <span class="pd">${r?(p?perWeek(p.weeklyKg):'')+(t?` · reach it ${esc(parseDay(t.date).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}))} (${Math.ceil(t.weeks)} weeks)`:''):'Hold your trend weight'}${p&&p.clamped?' · held at a safe minimum':''}</span></label>`}).join('');
 }
+let foodSort=(()=>{try{return sessionStorage.getItem('nh.foodSort')||'used'}catch(_){return 'used'}})();
 function viewFoods(){
-  const list=[...state.foods].sort((a,b)=>a.name.localeCompare(b.name));
+  const st=usageStats(), u=k=>st.get(k), by={
+    name:(a,b)=>a.name.localeCompare(b.name),
+    used:(a,b)=>((u('f:'+b.id)||{}).n||0)-((u('f:'+a.id)||{}).n||0)||a.name.localeCompare(b.name),
+    recent:(a,b)=>((u('f:'+b.id)||{}).last||'').localeCompare((u('f:'+a.id)||{}).last||'')||a.name.localeCompare(b.name)};
+  const list=[...state.foods].sort(by[foodSort]||by.name);
   return `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>My foods</h2><button class="btn sm primary" data-act="newFood">Create a food</button></div>
     <section class="panel stack"><div class="row" style="justify-content:space-between"><h3>Recipes</h3><button class="btn sm" data-act="newRecipe">Create a recipe</button></div>
-      ${state.recipes.length?`<div>${[...state.recipes].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<div class="ent">
-        <div><button class="nm" data-editrecipe="${r.id}">${esc(r.name)}</button><div class="meta">Makes ${servingsText(r.servings||1)} · ${r.items.length} food${r.items.length===1?'':'s'} · ${recipeSummary(r)}</div></div>
+      ${state.recipes.length?`<div class="rlist">${[...state.recipes].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<div class="ent">
+        <div><button class="nm" data-editrecipe="${r.id}">${esc(r.name)}</button><div class="meta">Makes ${servingsText(r.servings||1)} · ${r.items.length} food${r.items.length===1?'':'s'} · ${recipeSummary(r)}</div>
+          <div class="meta">${usageLine(u('r:'+r.id))}</div></div>
+        ${partsChart(u('r:'+r.id))||'<span></span>'}
         <button class="btn sm ghost" data-pickrecipe="${r.id}">Log</button>
         <button class="x-btn" data-rmrecipe="${r.id}" aria-label="Remove ${esc(r.name)}">×</button></div>`).join('')}</div>`
       :`<p class="small muted">Group foods you often eat together, then log them in one go. Build one here, or log a meal and use <b>Save as recipe</b> on Today.</p>`}
     </section>
-    <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used.</p>
+    <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used. The columns show when you eat it, by the parts of the day in Settings.</p>
+    <div class="row"><span class="small">Sort</span><div class="seg" role="group" aria-label="Sort foods">${[['used','Most used'],['recent','Recent'],['name','Name']].map(([k,n])=>`<button data-foodsort="${k}" aria-pressed="${foodSort===k}">${n}</button>`).join('')}</div></div>
     <section class="panel">${list.length?list.map(f=>`<div class="ent">
         <div><button class="nm" data-editfood="${f.id}">${esc(f.name)}</button>${f.brand?` <span class="fb small muted">${esc(f.brand)}</span>`:''}
-          <div class="meta">${per100Summary(f)}</div></div>
-        <span class="src-tag">${esc(SRC_NAME[f.source]||'')}${f.barcode?` · ${esc(f.barcode)}`:''}</span>
+          <div class="meta">${per100Summary(f)}</div>
+          <div class="meta">${usageLine(u('f:'+f.id))} <span class="src-tag">${esc(SRC_NAME[f.source]||'')}${f.barcode?` · ${esc(f.barcode)}`:''}</span></div></div>
+        ${partsChart(u('f:'+f.id))||'<span></span>'}
         <button class="x-btn" data-rmfood="${f.id}" aria-label="Remove ${esc(f.name)}">×</button></div>`).join('')
       :`<p class="empty">No foods yet. Log something from Today, or create one here.</p>`}</section>
   </div>`;
@@ -1385,6 +1446,25 @@ function readMicrosForm(){
     return {k:c.k,v:v>0?v:null,kind};
   });
 }
+function dayPartsSettings(){
+  const h=dayParts();
+  return `<section class="panel stack" id="dayPartsPanel"><h3>Parts of the day</h3>
+    <p class="small muted">The Foods page shows when you eat each food in these parts. Each runs from its start to the next one.</p>
+    <form id="dayPartsForm" autocomplete="off"><div>
+      ${h.map((x,i)=>`<div class="dpset"><span class="small">${partName(h,i)}</span>
+        <select name="h" aria-label="Part ${i+1} starts at">${Array.from({length:24},(_,k)=>`<option value="${k}"${k===x?' selected':''}>${hourName(k)}</option>`).join('')}</select>
+        <button type="button" class="x-btn" data-rmpart="${i}" aria-label="Remove ${partName(h,i)}"${h.length<=2?' disabled':''}>×</button></div>`).join('')}</div>
+      <div class="row" style="margin-top:10px">${h.length<8?'<button class="btn sm" type="button" data-act="addPart">Add a part</button>':''}
+        <button class="btn sm ghost" type="button" data-act="resetParts">Use defaults</button>
+        <button class="btn primary" type="submit">Save</button></div>
+    </form>
+  </section>`;
+}
+const readDayParts=()=>{const f=document.getElementById('dayPartsForm'); return f?new FormData(f).getAll('h').map(Number):dayParts()};
+function setDayParts(h){
+  h=[...new Set(h)].sort((a,b)=>a-b); if(h.length<2){toast('Keep at least two parts of the day.'); return false}
+  state.settings.dayParts=h; touchSettings(); return true;
+}
 function viewSettings(){
   const t=targetsFor(todayKey()), p=state.settings.unitPrefs;
   const unitSeg=(kind,label)=>`<div class="row"><span class="small" style="min-width:110px">${label}</span>
@@ -1399,6 +1479,7 @@ function viewSettings(){
       </form>
     </section>
     ${microsSettings()}
+    ${dayPartsSettings()}
     <section class="panel stack"><h3>Profile</h3>
       <p class="small muted">Used for a starting estimate of your expenditure, before there\u2019s enough logging to measure it.</p>
       <form class="form" id="profileForm" autocomplete="off">
@@ -2059,6 +2140,7 @@ document.addEventListener('submit',e=>{
     const p=proposal(); if(p) applyProposal(p); else touchSettings();
     closeSheet(); toast(p?`Goal set. Daily budget is now ${fmt(p.targets.kcal)} kcal.`:'Goal set. Your budget follows once expenditure is known.'); render(); return}
   if(id==='microsForm'){readMicrosForm(); touchSettings(); toast('Micros saved'); render(); return}
+  if(id==='dayPartsForm'){if(setDayParts(readDayParts())){toast('Parts of the day saved'); render()} return}
   if(id==='profileForm'){
     const h=num(f.get('height')), by=num(f.get('birthYear'));
     state.settings.profile={sex:f.get('sex')||'',birthYear:by||null,heightCm:h?(wUnit()==='lb'?h*2.54:h):null,activity:num(f.get('activity'))||1.375};
@@ -2096,6 +2178,8 @@ document.addEventListener('click',async e=>{
   if(d.tab){tab=d.tab;pendingDelete=null;try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();window.scrollTo(0,0);return}
   if(d.goto){tab=d.goto;render();window.scrollTo(0,0);return}
   if(d.act==='chooseMicros'){tab='settings';try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();const el=document.getElementById('microsPanel'); if(el) el.scrollIntoView(); return}
+  if(d.rmpart){const h=readDayParts(); h.splice(+d.rmpart,1); if(setDayParts(h)) render(); return}
+  if(d.foodsort){foodSort=d.foodsort; try{sessionStorage.setItem('nh.foodSort',foodSort)}catch(_){} render(); return}
   if(d.rmmicro){readMicrosForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
   if(d.day){day=addDays(day,+d.day);render();return}
   if(d.act==='goToday'){day=todayKey();render();return}
@@ -2110,6 +2194,13 @@ document.addEventListener('click',async e=>{
   if(d.act==='newRecipe'){openSheet({type:'editRecipe',draft:{name:'',servings:1,items:[]}});return}
   if(d.editrecipe){const r=recipeById(d.editrecipe); if(r) openSheet({type:'editRecipe',draft:{id:r.id,name:r.name,servings:r.servings||1,items:r.items.map(i=>({...i}))}}); return}
   if(d.rmitem){syncDraft(); sheet.draft.items.splice(+d.rmitem,1); renderSheet(); return}
+  if(d.act==='addPart'){
+    // Splits the longest part in two
+    const h=readDayParts().sort((a,b)=>a-b); let best=0, gap=0;
+    h.forEach((x,i)=>{const g=((h[(i+1)%h.length]-x)+24)%24||24; if(g>gap){gap=g; best=i}});
+    if(gap<2){toast('Every hour already starts a part.'); return}
+    if(setDayParts([...h,(h[best]+Math.floor(gap/2))%24])) render(); return}
+  if(d.act==='resetParts'){if(setDayParts([...DEFAULT_DAY_PARTS])) render(); return}
   if(d.act==='recipeAddFoods'){syncDraft(); building=sheet.draft; closeSheet(); search.q=''; closeAdder(); openAdder(true); return}
   if(d.act==='buildDone'){const dr=building; building=null; search.q=''; closeAdder(); openSheet({type:'editRecipe',draft:dr}); return}
   if(d.rmrecipe){const r=recipeById(d.rmrecipe); dropRecord('recipes',d.rmrecipe); toast(`Removed ${r?r.name:'recipe'}. Logged entries stay.`); if(sheet) closeSheet(); render(); return}
