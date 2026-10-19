@@ -1,0 +1,23 @@
+{
+  "name": "Nutrition Helper",
+  "short_name": "Nutrition",
+  "description": "Log food and weigh-ins, and see what's left of today's budget.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef2f4",
+  "theme_color": "#ffffff",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml"}
+  ],
+  "shortcuts": [
+    {"name": "Log food", "short_name": "Log food", "url": "./?do=log", "icons": [{"src": "icons/sc-food.png", "sizes": "96x96", "type": "image/png"}]},
+    {"name": "Scan a barcode", "short_name": "Scan", "url": "./?do=scan", "icons": [{"src": "icons/sc-scan.png", "sizes": "96x96", "type": "image/png"}]},
+    {"name": "Add a weigh-in", "short_name": "Weigh in", "url": "./?do=weigh", "icons": [{"src": "icons/sc-weigh.png", "sizes": "96x96", "type": "image/png"}]}
+  ]
+}

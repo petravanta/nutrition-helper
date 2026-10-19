@@ -6,6 +6,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Nutrition Helper</title>
 <meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
@@ -1736,7 +1739,17 @@ function render(){
   if(tab==='trends') drawCharts();
 }
 
+// Home-screen shortcuts open the app with ?do=log|scan|weigh
+const launch=new URLSearchParams(location.search).get('do');
+if(launch){
+  history.replaceState(null,'',location.pathname+location.hash);
+  tab=launch==='weigh'?'weight':'today';
+  try{sessionStorage.setItem('nh.tab',tab)}catch(_){}
+}
 render();
+if(launch==='log'){const q=document.getElementById('foodQ'); if(q) q.focus()}
+if(launch==='scan') openSheet({type:'scan'});
+if(launch==='weigh'){const w=document.querySelector('#weighForm [name=weight]'); if(w) w.focus()}
 showDriveStatus();
 if(driveConfigured()&&Drive.on){
   loadGis().catch(()=>{});            // ready for the next tap-to-renew
@@ -1747,6 +1760,7 @@ if(driveConfigured()&&Drive.on){
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'||day!==renderedToday||day===todayKey()||sheet) return; day=todayKey(); render()});
 </script>
 
+<script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{})</script>
 <script src="https://petravanta.github.io/general/shared/hub-link.js" defer></script>
 <script src="https://petravanta.github.io/general/shared/theme-switch.js" defer></script>
 </body>
