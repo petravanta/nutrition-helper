@@ -1765,7 +1765,6 @@ function viewTrends(){
   const {rows,weekly}=chartRows(), wconv=v=>toDisp(v), mc=rows.length?'':measureCharts(), ov=overlayKeys(), lconv=v=>toLen(v);
   addOverlay(rows,ov);
   const mk=(id,title,unit,dp,series,extra={})=>chartCard({id,title,unit,dp,rows,weekly,series,...extra});
-  const nutr=m=>mk(m.k,`${m.n} (${m.u})`,m.u,0,[{k:m.k,name:weekly?'Daily average':'Eaten',mark:'bar',color:'a'},{k:'t_'+m.k,name:m.kind==='ceiling'?'Limit':m.kind==='floor'?'Minimum':'Target',mark:'step',color:'ink'}],{zero:true});
   return `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>Trends</h2>
       <div class="seg" role="group" aria-label="Time range">${RANGES.map(([k,l])=>`<button data-range="${k}" aria-pressed="${range===k}">${l}</button>`).join('')}</div></div>
@@ -1776,8 +1775,7 @@ function viewTrends(){
     <div class="two">${mk('tdee','Expenditure (kcal/day)','kcal',0,[{k:'tdee',name:'Expenditure',mark:'line',color:'a'}])}
       ${mk('bodyfat','Body fat (%)','%',1,[{k:'bf',name:'Body fat',mark:'dots',color:'a'}])}</div>
     ${mk('macros','Calories & macros','g',0,[{k:'protein',name:'Protein (g)',mark:'stack',color:'b'},{k:'fat',name:'Fat (g)',mark:'stack',color:'e'},{k:'carbs',name:'Carbs (g)',mark:'stack',color:'c'},
-      {k:'kcal',name:'Calories (right)',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240})}
-    <div class="two">${METRICS.slice(1).map(nutr).join('')}</div>`
+      {k:'kcal',name:'Calories (right)',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240})}`
     :mc?'':`<p class="empty">Log food and weigh-ins to see trends here.</p>`}
     ${mc}
   </div>`;
