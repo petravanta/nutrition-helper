@@ -6,7 +6,9 @@ A browser-based food and weight tracker. Log what you eat against daily budgets 
 
 **[Open Nutrition Helper → petravanta.github.io/nutrition-helper](https://petravanta.github.io/nutrition-helper/)**
 
-It runs in any modern browser on phone or desktop, with no sign-up. On a phone, use *Add to Home Screen* to open it like an app.
+It runs in any modern browser on phone or desktop, with no sign-up.
+
+**Install it as an app.** On Android, open the link in Chrome, tap the ⋮ menu and choose *Install app* (or *Add to Home screen*). It then opens full screen from its own icon, works without a connection (food search and Drive sync wait until you're back online), and long-pressing the icon offers shortcuts: *Log food*, *Scan* and *Weigh in*. On iPhone, use Safari's Share → *Add to Home Screen*.
 
 ## What it does
 
@@ -38,7 +40,7 @@ Everything is stored in your browser (`localStorage`). Turn on **Google Drive sy
 
 ## Running it
 
-It's a single static file, `index.html`, with no build step. Open it in a browser, or serve it with GitHub Pages (Settings → Pages → Deploy from a branch → `main` / root).
+It's a single static page, `index.html`, with no build step, plus `manifest.webmanifest`, `sw.js` and `icons/` that make it installable. The service worker fetches the page network-first, so a new version shows up the next time the app opens online; bump `CACHE` in `sw.js` when the list of cached files changes. Open it in a browser, or serve it with GitHub Pages (Settings → Pages → Deploy from a branch → `main` / root).
 
 ## Google Drive sync
 
