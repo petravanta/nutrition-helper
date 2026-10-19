@@ -175,6 +175,11 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .add-btn{white-space:nowrap}
 .rgrp .ent.sub{padding-left:14px;border-top-style:dashed}
 .picks{display:flex;flex-direction:column;gap:2px}
+.mform label.field .was{font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint);font-family:var(--f-mono);min-height:1.3em}
+.mform label.field .was b{font-weight:600;color:var(--accent)}
+.mtbl td,.mtbl th{text-align:right}.mtbl td:first-child,.mtbl th:first-child{text-align:left}
+.sites{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px}
+.sites label{display:inline-flex;gap:6px;align-items:center}
 .picks label{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
 .picks label:first-child{border-top:0}
 .ritem{display:grid;grid-template-columns:minmax(0,1fr) 80px minmax(0,110px) auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
@@ -258,6 +263,7 @@ details summary{cursor:pointer}
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="today" aria-selected="true">Today</button>
       <button role="tab" data-tab="weight" aria-selected="false">Weight</button>
+      <button role="tab" data-tab="body" aria-selected="false">Measurements</button>
       <button role="tab" data-tab="trends" aria-selected="false">Trends</button>
       <button role="tab" data-tab="foods" aria-selected="false">Foods</button>
       <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
@@ -376,12 +382,14 @@ function defaultSettings(){return{
   unitPrefs:{mass:'g',volume:'ml'},   // last weight and volume unit used when logging, reused for every food
   usdaKey:'',
   profile:{sex:'',birthYear:null,heightCm:null,activity:1.375},   // for the starting expenditure estimate
+  lengthUnit:'',   // 'cm' or 'in' for body measurements; empty follows the body weight unit
+  measureSites:null,   // which body measurements to show; null is the default set
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
 };}
-const LISTS=['entries','weighins','foods','checkins','recipes'];
-function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],checkins:[],recipes:[],deleted:[]}}
+const LISTS=['entries','weighins','foods','checkins','recipes','measurements'];
+function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],checkins:[],recipes:[],measurements:[],deleted:[]}}
 let state=emptyState();
 
 function lsGet(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}}
@@ -432,6 +440,29 @@ const entriesFor=day=>state.entries.filter(e=>e.date===day).sort((a,b)=>(a.ts||'
 function totalsFor(day){const t={}; METRICS.forEach(m=>t[m.k]=0); entriesFor(day).forEach(e=>METRICS.forEach(m=>t[m.k]+=Number(e[m.k])||0)); return t}
 const weighinsSorted=()=>[...state.weighins].sort((a,b)=>a.date<b.date?1:-1);
 const weighinOn=day=>state.weighins.find(w=>w.date===day);
+
+/* ---------------- Body measurements ---------------- */
+// A measurement check-in: {id, date, v:{site: cm}} holding only the sites measured that day. Sites left alone
+// carry forward from their last check-in, so slow movers (neck, calves) don't need re-measuring every time.
+const SITES=[['neck','Neck'],['shoulders','Shoulders'],['chest','Chest'],['armL','Left arm'],['armR','Right arm'],['forearmL','Left forearm'],['forearmR','Right forearm'],
+  ['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf']];
+const DEFAULT_SITES=['neck','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
+const siteName=k=>(SITES.find(x=>x[0]===k)||[k,k])[1];
+const lUnit=()=>state.settings.lengthUnit||(wUnit()==='lb'?'in':'cm');
+const toLen=cm=>lUnit()==='in'?cm/2.54:cm;
+const fromLen=v=>lUnit()==='in'?v*2.54:v;
+const fmtL=cm=>cm==null?'–':toLen(cm).toFixed(1);
+const measuresSorted=()=>[...state.measurements].sort((a,b)=>a.date<b.date?-1:1);
+const measureOn=d=>state.measurements.find(m=>m.date===d);
+// A site's value on a day: its latest check-in on or before that day
+function measureAsOf(site,d,before){
+  let hit=null; for(const m of measuresSorted()){if(before?m.date>=d:m.date>d) break; if(m.v&&m.v[site]!=null) hit={cm:m.v[site],date:m.date}}
+  return hit;
+}
+function trackedSites(){
+  const on=new Set(state.settings.measureSites||DEFAULT_SITES);
+  return SITES.map(x=>x[0]).filter(k=>on.has(k));
+}
 
 /* ---------------- Foods & amounts ---------------- */
 // A food: {id, name, brand, barcode, source:'custom'|'off'|'usda', ext, base:'g'|'ml', per100:{kcal,protein,fat,carbs,sodium,…every other nutrient},
@@ -988,6 +1019,49 @@ function viewWeight(){
     </section>
   </div>`;
 }
+function measureField(k,d){
+  const cur=measureAsOf(k,d), prev=measureAsOf(k,d,true), rec=measureOn(d), today=rec&&rec.v&&rec.v[k]!=null;
+  const was=today?(prev?`was ${fmtL(prev.cm)} on ${shortDate(prev.date)}`:'first measurement'):cur?`since ${shortDate(cur.date)}`:'not measured yet';
+  return `<label class="field">${esc(siteName(k))}<input type="number" name="m_${k}" inputmode="decimal" step="0.1" min="0" value="${cur?toLen(cur.cm).toFixed(1):''}" data-base="${prev&&today?toLen(prev.cm).toFixed(1):''}">
+    <span class="was" data-was="${k}">${esc(was)}</span></label>`;
+}
+function measureForm(d){
+  return `<form class="form mform" id="measureForm" autocomplete="off">
+    <label class="field">Date<input type="date" name="date" id="mDate" value="${d}" required></label>
+    ${trackedSites().map(k=>measureField(k,d)).join('')}
+    <div class="row full"><button class="btn primary" type="submit">Save measurements</button>
+      <span class="small muted">Change only what you re-measured. The rest carry forward.</span></div>
+  </form>`;
+}
+function measureRowsHtml(){
+  const ms=measuresSorted(); if(!ms.length) return '';
+  const rows=trackedSites().map(k=>{const cur=measureAsOf(k,todayKey()); if(!cur) return '';
+    const first=ms.find(m=>m.v&&m.v[k]!=null), prev=measureAsOf(k,cur.date,true);
+    const dlt=(a,b)=>b==null?'–':`${a-b>0?'+':a-b<0?'−':''}${Math.abs(toLen(a)-toLen(b)).toFixed(1)}`;
+    return `<tr><td>${esc(siteName(k))}<br><span class="small muted">${esc(shortDate(cur.date))}</span></td><td class="mono">${fmtL(cur.cm)}</td><td class="mono">${dlt(cur.cm,prev&&prev.cm)}</td><td class="mono">${first.date===cur.date?'–':dlt(cur.cm,first.v[k])}</td></tr>`}).join('');
+  return `<div class="tbl"><table class="mtbl"><thead><tr><th>Measurement</th><th>Now (${lUnit()})</th><th>Change</th><th>Since start</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function viewBody(){
+  const ms=measuresSorted().reverse(), on=new Set(state.settings.measureSites||DEFAULT_SITES);
+  return `<div class="stack">
+    <div class="row" style="justify-content:space-between"><h2>Measurements</h2>
+      <div class="seg" role="group" aria-label="Measurement unit">${['cm','in'].map(u=>`<button data-lunit="${u}" aria-pressed="${lUnit()===u}">${u}</button>`).join('')}</div></div>
+    ${ms.length?`<section class="panel stack"><h3>Current</h3>${measureRowsHtml()}</section>`:''}
+    <section class="panel stack"><h3>${ms.length?'New check-in':'Add your first measurements'}</h3>
+      <p class="small muted">${ms.length?'Each box starts at your last value. Adjust the ones you re-measured and leave slower-moving ones as they are.':'Measure what you like; anything left blank can be added later.'}</p>
+      <div id="mFormHost">${measureForm(todayKey())}</div>
+      <details><summary class="small muted">Choose measurements</summary>
+        <div class="sites">${SITES.map(([k,n])=>`<label><input type="checkbox" data-site="${k}"${on.has(k)?' checked':''}>${esc(n)}</label>`).join('')}</div></details>
+    </section>
+    <section class="panel stack"><h3>History</h3>
+      ${ms.length?`<div>${ms.slice(0,60).map(m=>`<div class="wrow"><span class="d">${esc(dayLabel(m.date))}</span>
+        <span class="v small">${Object.keys(m.v||{}).sort((a,b)=>SITES.findIndex(x=>x[0]===a)-SITES.findIndex(x=>x[0]===b)).map(k=>`${esc(siteName(k))} ${fmtL(m.v[k])}`).join(' · ')}</span><span></span>
+        <button class="x-btn" data-rmmeasure="${m.id}" aria-label="Remove measurements for ${esc(dayLabel(m.date))}">×</button></div>`).join('')}</div>
+        <p class="small muted">Charts are under Trends.</p>`
+        :`<p class="empty">No measurements yet.</p>`}
+    </section>
+  </div>`;
+}
 const paceName=r=>r===0?'Maintain':`${r<0?'Lose':'Gain'} ${Math.abs(r)}% a week`;
 const perWeek=kg=>`${kg>0?'+':kg<0?'−':''}${toDisp(Math.abs(kg)).toFixed(2)} ${wUnit()}/week`;
 function goalPanel(){
@@ -1078,6 +1152,8 @@ function viewSettings(){
     <section class="panel stack"><h3>Units</h3>
       <div class="row"><span class="small" style="min-width:110px">Body weight</span>
         <div class="seg" role="group" aria-label="Body weight unit">${['lb','kg'].map(u=>`<button data-wunit="${u}" aria-pressed="${wUnit()===u}">${u}</button>`).join('')}</div></div>
+      <div class="row"><span class="small" style="min-width:110px">Measurements</span>
+        <div class="seg" role="group" aria-label="Measurement unit">${['cm','in'].map(u=>`<button data-lunit="${u}" aria-pressed="${lUnit()===u}">${u}</button>`).join('')}</div></div>
       ${unitSeg('mass','Food by weight')}${unitSeg('volume','Food by volume')}
       <p class="small muted">Food units also follow whatever you last picked when logging.</p>
     </section>
@@ -1133,7 +1209,7 @@ function chartRows(){
 function chartCard(spec){
   CHARTS[spec.id]=spec;
   const legend=spec.series.length>1?`<div class="legend">${spec.series.map(s=>`<span><i class="key ${s.mark} c-${s.color}"></i>${esc(s.name)}</span>`).join('')}</div>`:'';
-  const tableRows=spec.rows.filter(r=>spec.series.some(s=>r[s.k]!=null)).slice(-60).reverse();
+  const tableRows=spec.rows.filter(spec.tableIf||(r=>spec.series.some(s=>r[s.k]!=null))).slice(-60).reverse();
   return `<section class="panel stack chart-card"><h3>${esc(spec.title)}</h3>${legend}
     <div class="chart" data-chart="${spec.id}"></div>
     <details><summary class="small muted">Data table</summary><div class="tbl"><table><thead><tr><th>${spec.weekly?'Week of':'Date'}</th>${spec.series.map(s=>`<th>${esc(s.name)}</th>`).join('')}</tr></thead>
@@ -1203,8 +1279,30 @@ document.addEventListener('keydown',e=>{
 });
 let resizeT=null; window.addEventListener('resize',()=>{clearTimeout(resizeT); resizeT=setTimeout(drawCharts,150)});
 
+// One row per day across the range (per week when long): the carried value, and the reading on days it was measured
+function measureChartRows(k){
+  const ms=measuresSorted().filter(m=>m.v&&m.v[k]!=null); if(!ms.length) return {rows:[],weekly:false};
+  const days=RANGES.find(r=>r[0]===range)[2], t=todayKey(), from=days?addDays(t,-days+1):measuresSorted()[0].date, n=Math.round((parseDay(t)-parseDay(from))/864e5)+1;
+  const weekly=n>120, step=weekly?7:1, rows=[];
+  let i=0, carry=null;
+  for(const m of ms) if(m.date<from) carry=m.v[k];
+  while(i<ms.length&&ms[i].date<from) i++;
+  for(let d=from; d<=t; d=addDays(d,step)){
+    const end=weekly?addDays(d,6):d; let read=null;
+    while(i<ms.length&&ms[i].date<=end){read=carry=ms[i].v[k]; i++}
+    rows.push({date:d,cur:carry,read});
+  }
+  return {rows,weekly};
+}
+function measureCharts(){
+  const lconv=v=>toLen(v);
+  const cards=trackedSites().map(k=>{const {rows,weekly}=measureChartRows(k); if(!rows.some(r=>r.cur!=null)) return '';
+    return chartCard({id:'m_'+k,title:`${siteName(k)} (${lUnit()})`,unit:lUnit(),dp:1,rows,weekly,tableIf:r=>r.read!=null,
+      series:[{k:'cur',name:'Current',mark:'line',color:'a',conv:lconv},{k:'read',name:'Measured',mark:'dots',color:'a',conv:lconv}]})}).filter(Boolean);
+  return cards.length?`<h3>Measurements</h3><div class="two">${cards.join('')}</div>`:'';
+}
 function viewTrends(){
-  const {rows,weekly}=chartRows(), wconv=v=>toDisp(v);
+  const {rows,weekly}=chartRows(), wconv=v=>toDisp(v), mc=measureCharts();
   const mk=(id,title,unit,dp,series,extra={})=>chartCard({id,title,unit,dp,rows,weekly,series,...extra});
   const nutr=m=>mk(m.k,`${m.n} (${m.u})`,m.u,0,[{k:m.k,name:weekly?'Daily average':'Eaten',mark:'bar',color:'a'},{k:'t_'+m.k,name:m.kind==='ceiling'?'Limit':m.kind==='floor'?'Minimum':'Target',mark:'step',color:'ink'}],{zero:true});
   return `<div class="stack">
@@ -1217,7 +1315,8 @@ function viewTrends(){
       ${mk('bodyfat','Body fat (%)','%',1,[{k:'bf',name:'Body fat',mark:'dots',color:'a'}])}</div>
     ${nutr(METRICS[0])}
     <div class="two">${METRICS.slice(1).map(nutr).join('')}</div>`
-    :`<p class="empty">Log food and weigh-ins to see trends here.</p>`}
+    :mc?'':`<p class="empty">Log food and weigh-ins to see trends here.</p>`}
+    ${mc}
   </div>`;
 }
 
@@ -1568,6 +1667,21 @@ function saveWeighin(f){
   putRecord('weighins',{id:old?old.id:'w'+uid6(),date:d,kg:+fromDisp(w).toFixed(3),fat:fat==null?null:fat});
   toast(old?'Weigh-in updated':'Weigh-in saved'); return true;
 }
+// Only boxes the user changed are recorded; untouched ones keep carrying their earlier check-in forward
+function saveMeasures(form){
+  const d=form.elements.date.value; if(!d){toast('Pick a date.');return false}
+  const old=measureOn(d), v={...(old&&old.v||{})}; let changed=0;
+  for(const el of form.querySelectorAll('input[name^="m_"]')){
+    const k=el.name.slice(2); if(el.value===el.defaultValue) continue;
+    const x=num(el.value);
+    if(x==null||x<=0){if(k in v){delete v[k]; changed++} continue}
+    v[k]=+fromLen(x).toFixed(2); changed++;
+  }
+  if(!changed){toast('Nothing changed. Adjust a measurement first.');return false}
+  if(!Object.keys(v).length){if(old) dropRecord('measurements',old.id); toast('Measurements removed'); return true}
+  putRecord('measurements',{id:old?old.id:'m'+uid6(),date:d,v});
+  toast(`Saved ${changed} measurement${changed===1?'':'s'}`); return true;
+}
 document.addEventListener('submit',e=>{
   e.preventDefault();
   const f=new FormData(e.target), id=e.target.id;
@@ -1615,6 +1729,7 @@ document.addEventListener('submit',e=>{
     render(); return}
   if(id==='barcodeForm'){gotBarcode(f.get('code')); return}
   if(id==='todayWeigh'||id==='weighForm'){if(saveWeighin(f)) render(); return}
+  if(id==='measureForm'){if(saveMeasures(e.target)) render(); return}
   if(id==='targetsForm'){
     const t={from:todayKey()}; for(const m of METRICS){const v=num(f.get(m.k)); if(v==null||v<0){toast(`Enter a ${m.n.toLowerCase()} target.`);return} t[m.k]=v}
     state.settings.targets=state.settings.targets.filter(x=>x.from!==t.from).concat(t); touchSettings(); toast('Targets saved'); render(); return}
@@ -1632,6 +1747,11 @@ document.addEventListener('submit',e=>{
 });
 document.addEventListener('input',e=>{
   const t=e.target;
+  if(t.name&&t.name.startsWith('m_')&&t.form&&t.form.id==='measureForm'){
+    const was=t.form.querySelector(`[data-was="${t.name.slice(2)}"]`), base=num(t.dataset.base||t.defaultValue), x=num(t.value);
+    if(!was||t.value===t.defaultValue) return;
+    was.innerHTML=x==null?'cleared':base==null?'new':`from ${esc(fmt(base,1))} <b>${x-base>0?'+':x-base<0?'−':'±'}${Math.abs(x-base).toFixed(1)}</b>`;
+    return}
   if(t.id==='foodQ'){search.q=t.value; clearTimeout(search.timer); search.seq++; search.off=search.usda=null; search.err={}; search.busy={off:false,usda:false}; refreshResults(); search.timer=setTimeout(runSearch,650); return}
   if(t.id==='gTarget'&&sheet&&sheet.type==='goal'){const cur=document.querySelector('#gPaces input:checked'); document.getElementById('gPaces').innerHTML=pacesHtml(num(t.value),cur?num(cur.value):null); return}
   if(t.id==='rQty'&&sheet&&sheet.type==='recipe'){document.getElementById('rPreview').innerHTML=recipePreviewHtml(sheet.recipe,t.value); document.getElementById('rItems').innerHTML=recipeItemsHtml(sheet.recipe,t.value); return}
@@ -1686,6 +1806,8 @@ document.addEventListener('click',async e=>{
   if(d.editfood){openSheet({type:'editFood',food:foodById(d.editfood)});return}
   if(d.rmfood){const x=foodById(d.rmfood), rs=usedInRecipe(d.rmfood); dropRecord('foods',d.rmfood);
     toast(`Removed ${x?x.name:'food'}. Logged entries stay${rs.length?`; ${rs.map(r=>r.name).join(', ')} won’t include it`:''}.`); render(); return}
+  if(d.rmmeasure){dropRecord('measurements',d.rmmeasure); toast('Measurements removed'); render(); return}
+  if(d.lunit){state.settings.lengthUnit=d.lunit; touchSettings(); render(); return}
   if(d.rmweigh){dropRecord('weighins',d.rmweigh); toast('Weigh-in removed'); render(); return}
   if(d.wunit){state.settings.weightUnit=d.wunit; touchSettings(); render(); return}
   if(d.unitpref){const [k,u]=d.unitpref.split(':'); state.settings.unitPrefs[k]=u; touchSettings(); render(); return}
@@ -1706,6 +1828,9 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sheet) closeSheet()
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
+  if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); return}
+  if(t.dataset.site){const on=new Set(state.settings.measureSites||DEFAULT_SITES); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
+    state.settings.measureSites=SITES.map(x=>x[0]).filter(k=>on.has(k)); touchSettings(); render(); return}
   // Switching units keeps the same amount of food: 100 g becomes 3.53 oz
   if(t.id==='pUnit'&&sheet&&sheet.type==='food'){
     const q=document.getElementById('pQty');
@@ -1734,7 +1859,7 @@ let renderedToday=todayKey();
 function render(){
   renderedToday=todayKey();
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));
-  const v={today:viewToday,weight:viewWeight,trends:viewTrends,foods:viewFoods,settings:viewSettings}[tab]||viewToday;
+  const v={today:viewToday,weight:viewWeight,body:viewBody,trends:viewTrends,foods:viewFoods,settings:viewSettings}[tab]||viewToday;
   document.getElementById('main').innerHTML=v();
   if(tab==='trends') drawCharts();
 }
