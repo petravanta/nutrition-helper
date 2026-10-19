@@ -144,8 +144,10 @@ input[type=date],input[type=search]{background:var(--surface);border:1px solid v
 .daybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .daybar h2{margin-right:auto}
 .nav-btn{width:34px;height:34px;padding:0;display:inline-grid;place-items:center;font-size:18px;line-height:1}
-.budget{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
-@media (max-width:860px){.budget{grid-template-columns:repeat(2,minmax(0,1fr))}.budget .m:first-child{grid-column:1/-1}}
+.budget{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:860px){.budget{grid-template-columns:repeat(3,minmax(0,1fr))}.budget .m:first-child{grid-column:1/-1}}
+@media (max-width:560px){.budget{gap:8px}.budget .m:not(:first-child){padding:10px 11px}.budget .m:not(:first-child) .lbl{font-size:11px;letter-spacing:.03em}
+  .budget .m:not(:first-child) .big{font-size:19px}.budget .m:not(:first-child) .big small{display:block;font-size:12px}.budget .m:not(:first-child) .rem{font-size:12px}}
 .m{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
 .m .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .m .big{font-family:var(--f-mono);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
@@ -156,6 +158,21 @@ input[type=date],input[type=search]{background:var(--surface);border:1px solid v
 .m.over .meter i{background:var(--over)}
 .m.done .rem b{color:var(--ok)}
 .m.done .meter i{background:var(--ok)}
+.micros{gap:0}
+.micros h3{margin-bottom:6px}
+.mic{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 12px;align-items:baseline;padding:9px 0;border-top:1px solid var(--line)}
+.mic .meter,.mic .rem{grid-column:1/-1}
+.mic .nm{font-weight:600}
+.mic .nm small,.mic .v small,.mic .rem{font-size:13px;color:var(--muted);font-weight:400}
+.mic .v{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.mic .rem b{color:var(--ink);font-family:var(--f-mono);font-weight:500}
+.mic.over .rem b{color:var(--over)}
+.mic.over .meter i{background:var(--over)}
+.mic.done .rem b{color:var(--ok)}
+.mic.done .meter i{background:var(--ok)}
+.micset{display:grid;grid-template-columns:minmax(0,1fr) auto 96px auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.micset input{width:100%}
+@media (max-width:400px){.micset{grid-template-columns:minmax(0,1fr) auto 80px auto;gap:6px}}
 .form{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end}
 .form .wide{grid-column:span 2}
 .form .full{grid-column:1/-1}
@@ -383,6 +400,23 @@ const isMetric=k=>METRICS.some(m=>m.k===k);
 function moreOf(n){const o={}; for(const k in n) if(NUT[k]&&!isMetric(k)&&n[k]) o[k]=sig3(n[k]); return o}
 // All catalog nutrients logged on a day, for detail views and reports
 function dayNutrients(day){const t={}; for(const e of entriesFor(day)){METRICS.forEach(m=>t[m.k]=(t[m.k]||0)+(Number(e[m.k])||0)); for(const k in e.more||{}) t[k]=(t[k]||0)+e.more[k]} return t}
+const entryNut=(e,k)=>isMetric(k)?Number(e[k])||0:(e.more&&e.more[k])||0;
+
+/* ---------------- Micros on Today ---------------- */
+// settings.micros: [{k, v, kind}] — the catalog nutrients Today shows under the macros, in order, each with an optional
+// daily limit ('ceiling', a most-per-day) or goal ('floor', a least-per-day). Sodium is one of the five metrics, so its
+// limit stays in the dated targets (and its v here is unused); every other micro keeps its number here.
+const MACROS=METRICS.filter(m=>m.k!=='sodium');
+const MICRO_CEILING=new Set(['sodium','cholesterol','satFat','transFat','sugars','addedSugars','alcohol','caffeine']);
+const DEFAULT_MICROS=()=>[{k:'sodium',v:null,kind:'ceiling'},{k:'cholesterol',v:300,kind:'ceiling'}];
+const MICRO_OPTIONS=NUTRIENTS.filter(x=>!MACROS.some(m=>m.k===x.k));
+const MICRO_SHORT={sodium:'Na',cholesterol:'Chol',potassium:'K',calcium:'Ca',iron:'Fe',magnesium:'Mg',zinc:'Zn',satFat:'Sat fat',
+  transFat:'Trans fat',monoFat:'Mono fat',polyFat:'Poly fat',addedSugars:'Added sugar'};
+const microShort=k=>MICRO_SHORT[k]||NUT[k].n.replace(/^Vitamin /,'Vit ').replace(/ \(.*\)$/,'');
+const microLimit=(c,day)=>{const v=c.k==='sodium'?targetsFor(day).sodium:c.v; return v>0?v:null};
+const fmtNut=v=>fmt(v,v>0&&v<10?1:0);
+// Chosen micros as they read under an entry or a recipe
+function microsMeta(get){return state.settings.micros.map(c=>` · ${microShort(c.k)} ${fmtNut(get(c.k))} ${NUT[c.k].u}`).join('')}
 
 /* ---------------- Units ---------------- */
 // Foods keep nutrition per 100 g (or per 100 ml for drinks). Amounts convert through grams or millilitres;
@@ -408,6 +442,7 @@ function defaultSettings(){return{
   profile:{sex:'',birthYear:null,heightCm:null,activity:1.375},   // for the starting expenditure estimate
   lengthUnit:'',   // 'cm' or 'in' for body measurements; empty follows the body weight unit
   measureSites:null,   // which body measurements to show; null is the default set
+  micros:DEFAULT_MICROS(),   // micronutrients shown on Today, with optional limits (see Micros on Today)
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
@@ -425,6 +460,8 @@ function normalize(j){
   s.settings.unitPrefs=Object.assign(defaultSettings().unitPrefs,s.settings.unitPrefs||{});
   if(!Array.isArray(s.settings.targets)||!s.settings.targets.length) s.settings.targets=defaultSettings().targets;
   s.settings.profile=Object.assign(defaultSettings().profile,s.settings.profile||{});
+  if(!Array.isArray(s.settings.micros)) s.settings.micros=DEFAULT_MICROS();
+  s.settings.micros=s.settings.micros.filter(c=>c&&MICRO_OPTIONS.some(x=>x.k===c.k));
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
   return s;
 }
@@ -872,22 +909,43 @@ let building=null;
 // Food search: what's typed, and the online results for it
 const search={q:'',off:null,usda:null,busy:{off:false,usda:false},err:{},timer:null,seq:0};
 
-function budgetCard(m,eaten,target){
+// How far through a budget the day is: the meter's fill, a class for its colour and the line under it
+function budgetState(kind,eaten,target,u,f=fmt){
   const left=target-eaten, pct=target>0?Math.min(100,eaten/target*100):0;
-  let cls='', rem;
-  if(m.kind==='floor'){
-    if(left<=0){cls='done'; rem=`<b>Reached</b>${left<0?` · ${fmt(-left)} ${m.u} over`:''}`}
-    else rem=`<b>${fmt(left)}</b> ${m.u} to go`;
-  }else if(left<0){cls='over'; rem=`<b>${fmt(-left)}</b> ${m.u} over`}
-  else rem=`<b>${fmt(left)}</b> ${m.u} left`;
-  return `<div class="m ${cls}"><span class="lbl">${m.n}${m.kind==='ceiling'?' (max)':m.kind==='floor'?' (min)':''}</span>
+  if(kind==='floor'){
+    if(left<=0) return {pct,cls:'done',rem:`<b>Reached</b>${left<0?` · ${f(-left)} ${u} over`:''}`};
+    return {pct,cls:'',rem:`<b>${f(left)}</b> ${u} to go`};
+  }
+  return left<0?{pct,cls:'over',rem:`<b>${f(-left)}</b> ${u} over`}:{pct,cls:'',rem:`<b>${f(left)}</b> ${u} left`};
+}
+const kindTag=k=>k==='ceiling'?' (max)':k==='floor'?' (min)':'';
+function budgetCard(m,eaten,target){
+  const b=budgetState(m.kind,eaten,target,m.u);
+  return `<div class="m ${b.cls}"><span class="lbl">${m.n}${kindTag(m.kind)}</span>
     <span class="big">${fmt(eaten)}<small> / ${fmt(target)} ${m.u}</small></span>
-    <div class="meter" role="img" aria-label="${m.n}: ${fmt(eaten)} of ${fmt(target)} ${m.u}"><i style="width:${pct}%"></i></div>
-    <span class="rem">${rem}</span></div>`;
+    <div class="meter" role="img" aria-label="${m.n}: ${fmt(eaten)} of ${fmt(target)} ${m.u}"><i style="width:${b.pct}%"></i></div>
+    <span class="rem">${b.rem}</span></div>`;
+}
+function microRow(c,eaten,limit){
+  const x=NUT[c.k];
+  if(limit==null) return `<div class="mic"><span class="nm">${x.n}</span><span class="v">${fmtNut(eaten)}<small> ${x.u}</small></span></div>`;
+  const b=budgetState(c.kind,eaten,limit,x.u,fmtNut);
+  return `<div class="mic ${b.cls}"><span class="nm">${x.n}<small>${kindTag(c.kind)}</small></span>
+    <span class="v">${fmtNut(eaten)}<small> / ${fmtNut(limit)} ${x.u}</small></span>
+    <div class="meter" role="img" aria-label="${x.n}: ${fmtNut(eaten)} of ${fmtNut(limit)} ${x.u}"><i style="width:${b.pct}%"></i></div>
+    <span class="rem">${b.rem}</span></div>`;
+}
+function microsPanel(){
+  const on=state.settings.micros;
+  if(!on.length) return '';
+  const n=dayNutrients(day);
+  return `<section class="panel stack micros" aria-label="Micronutrients">
+    <div class="row" style="justify-content:space-between"><h3>Micros</h3><button class="btn sm ghost" data-act="chooseMicros">Choose</button></div>
+    <div>${on.map(c=>microRow(c,n[c.k]||0,microLimit(c,day))).join('')}</div></section>`;
 }
 function entryMeta(e){
   const amt=e.qty==null?'':unitKind(e.unit)==='serving'?`${fmtQty(e.qty)} × ${esc(e.unitLabel)} · `:`${fmtQty(e.qty)} ${esc(e.unitLabel)} · `;
-  return `${amt}P ${fmt(e.protein)} · F ${fmt(e.fat)} · C ${fmt(e.carbs)} · Na ${fmt(e.sodium)} mg`;
+  return `${amt}P ${fmt(e.protein)} · F ${fmt(e.fat)} · C ${fmt(e.carbs)}${microsMeta(k=>entryNut(e,k))}`;
 }
 function viewToday(){
   const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), w=weighinOn(day);
@@ -900,7 +958,8 @@ function viewToday(){
       ${day!==todayKey()?'<button class="btn sm" data-act="goToday">Today</button>':''}
     </div>
     ${day===todayKey()&&checkinDue()?checkinBanner():''}
-    <section class="budget" aria-label="Daily budget">${METRICS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
+    <section class="budget" aria-label="Daily budget">${MACROS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
+    ${microsPanel()}
     <section class="panel stack">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
         ${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div>
@@ -981,7 +1040,7 @@ function entriesHtml(list){
     const g=e.recipe.group; if(done.has(g)) return ''; done.add(g);
     const items=list.filter(x=>x.recipe&&x.recipe.group===g), kc=items.reduce((a,x)=>a+(Number(x.kcal)||0),0);
     const t=k=>fmt(items.reduce((a,x)=>a+(Number(x[k])||0),0));
-    return `<div class="rgrp"><div class="ent"><div><span class="nm">${esc(e.recipe.name)}</span><div class="meta">${servingsText(e.recipe.servings)} · P ${t('protein')} · F ${t('fat')} · C ${t('carbs')} · Na ${t('sodium')} mg</div></div>
+    return `<div class="rgrp"><div class="ent"><div><span class="nm">${esc(e.recipe.name)}</span><div class="meta">${servingsText(e.recipe.servings)} · P ${t('protein')} · F ${t('fat')} · C ${t('carbs')}${microsMeta(k=>items.reduce((a,x)=>a+entryNut(x,k),0))}</div></div>
       <span class="kc">${fmt(kc)} kcal</span><button class="x-btn" data-rmgroup="${esc(g)}" aria-label="Remove ${esc(e.recipe.name)}">×</button></div>
       ${items.map(x=>entRow(x,true)).join('')}</div>`;
   }).join('');
@@ -1199,6 +1258,35 @@ function viewFoods(){
       :`<p class="empty">No foods yet. Log something from Today, or create one here.</p>`}</section>
   </div>`;
 }
+function microsSettings(){
+  const on=state.settings.micros, t=targetsFor(todayKey()), groups=[...new Set(MICRO_OPTIONS.map(x=>x.g))];
+  const val=c=>{const v=c.k==='sodium'?t.sodium:c.v; return v>0?+fmtQty(v):''};
+  return `<section class="panel stack" id="microsPanel"><h3>Micros on Today</h3>
+    <p class="small muted">Shown under the macros on Today. A limit is the most to have in a day, a goal the least; leave the number empty to just see the amount. Foods from Open Food Facts and USDA bring these when they list them, and your own foods and quick adds get a field for each one picked here.</p>
+    <form id="microsForm" autocomplete="off">
+      ${on.map(c=>`<div class="micset"><span>${NUT[c.k].n} <span class="small muted">${NUT[c.k].u}</span></span>
+        <select name="kind:${c.k}" aria-label="${NUT[c.k].n}: limit or goal"><option value="ceiling"${c.kind==='floor'?'':' selected'}>Limit</option><option value="floor"${c.kind==='floor'?' selected':''}>Goal</option></select>
+        <input type="number" name="v:${c.k}" inputmode="decimal" step="any" min="0" value="${val(c)}" placeholder="None" aria-label="${NUT[c.k].n} per day (${NUT[c.k].u})">
+        <button type="button" class="x-btn" data-rmmicro="${c.k}" aria-label="Stop showing ${NUT[c.k].n}">×</button></div>`).join('')
+        ||'<p class="small muted">None picked. Today shows only the macros.</p>'}
+      <div class="row" style="margin-top:10px"><select id="addMicro" aria-label="Show another nutrient" style="flex:1 1 200px"><option value="">Show another nutrient…</option>
+        ${groups.map(g=>`<optgroup label="${g}">${MICRO_OPTIONS.filter(x=>x.g===g&&!on.some(c=>c.k===x.k)).map(x=>`<option value="${x.k}">${x.n} (${x.u})</option>`).join('')}</optgroup>`).join('')}</select>
+        <button class="btn primary" type="submit">Save</button></div>
+    </form>
+  </section>`;
+}
+// Takes the limits as typed; sodium's goes into the dated targets from today, like the macros
+function readMicrosForm(){
+  const form=document.getElementById('microsForm'); if(!form) return;
+  const f=new FormData(form);
+  state.settings.micros=state.settings.micros.map(c=>{
+    const v=num(f.get('v:'+c.k)), kind=f.get('kind:'+c.k)==='floor'?'floor':'ceiling';
+    if(c.k==='sodium'){const cur=targetsFor(todayKey()), nv=v>0?v:0;
+      if(nv!==cur.sodium) state.settings.targets=state.settings.targets.filter(x=>x.from!==todayKey()).concat({...cur,from:todayKey(),sodium:nv});
+      return {k:c.k,v:null,kind}}
+    return {k:c.k,v:v>0?v:null,kind};
+  });
+}
 function viewSettings(){
   const t=targetsFor(todayKey()), p=state.settings.unitPrefs;
   const unitSeg=(kind,label)=>`<div class="row"><span class="small" style="min-width:110px">${label}</span>
@@ -1208,10 +1296,11 @@ function viewSettings(){
     <section class="panel stack"><h3>Daily targets</h3>
       <p class="small muted">Used from today onward. Earlier days keep the targets they had.</p>
       <form class="form" id="targetsForm" autocomplete="off">
-        ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${t[m.k]}" required></label>`).join('')}
+        ${MACROS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${t[m.k]}" required></label>`).join('')}
         <div class="row" style="align-self:end"><button class="btn primary" type="submit">Save targets</button></div>
       </form>
     </section>
+    ${microsSettings()}
     <section class="panel stack"><h3>Profile</h3>
       <p class="small muted">Used for a starting estimate of your expenditure, before there\u2019s enough logging to measure it.</p>
       <form class="form" id="profileForm" autocomplete="off">
@@ -1613,6 +1702,8 @@ function sheetSaveRecipe(){
       <div class="row"><button class="btn primary big" type="submit">Save recipe</button></div>
     </form>`;
 }
+// The picked micros that aren't already one of the five metrics, for forms that take nutrition by hand
+const extraMicros=()=>state.settings.micros.filter(c=>!isMetric(c.k)).map(c=>NUT[c.k]);
 function sheetQuick(){
   const e=sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
   return `<h2>${e?'Edit entry':'Quick add'}</h2>
@@ -1620,6 +1711,7 @@ function sheetQuick(){
     <form class="form" id="quickAdd" autocomplete="off">
       <label class="field wide">Name<input type="text" name="name" value="${esc(e?e.name:'')}" placeholder="e.g. Lunch out"></label>
       ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${e?+fmtQty(e[m.k]||0):''}"></label>`).join('')}
+      ${extraMicros().map(x=>`<label class="field">${x.n} (${x.u})<input type="number" name="${x.k}" inputmode="decimal" step="any" min="0" value="${e&&e.more&&e.more[x.k]?+fmtQty(e.more[x.k]):''}"></label>`).join('')}
       <div class="row full"><button class="btn primary" type="submit">${e?'Save':'Add'}</button>${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
     </form>`;
 }
@@ -1636,6 +1728,7 @@ function sheetEditFood(){
       <label class="field">Serving size<input type="number" name="samt" inputmode="decimal" step="any" min="0" value="${+fmtQty(amt)}" required></label>
       <label class="field">Unit<select name="base"><option value="g"${base==='g'?' selected':''}>g</option><option value="ml"${base==='ml'?' selected':''}>ml</option></select></label>
       ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${n[m.k]!=null?+fmtQty(n[m.k]):''}"${m.k==='kcal'?' required':''}></label>`).join('')}
+      ${extraMicros().map(x=>`<label class="field">${x.n} (${x.u})<input type="number" name="${x.k}" inputmode="decimal" step="any" min="0" value="${n[x.k]!=null?+fmtQty(sig3(n[x.k])):''}"></label>`).join('')}
       <div class="row full"><button class="btn primary" type="submit">Save food</button></div>
     </form>`;
 }
@@ -1806,13 +1899,15 @@ document.addEventListener('submit',e=>{
     const old=sheet&&sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
     const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:nowIso(),name:String(f.get('name')||'').trim()||'Quick add'};
     METRICS.forEach(m=>rec[m.k]=num(f.get(m.k))||0);
-    if(!METRICS.some(m=>rec[m.k])){toast('Enter some nutrition.');return}
+    rec.more={...(old&&old.more||{})}; extraMicros().forEach(x=>{const v=num(f.get(x.k)); if(v>0) rec.more[x.k]=v; else delete rec.more[x.k]});
+    if(!METRICS.some(m=>rec[m.k])&&!Object.keys(rec.more).length){toast('Enter some nutrition.');return}
     putRecord('entries',rec); toast(old?'Entry updated':`Added ${rec.name}`); closeSheet(); render(); return}
   if(id==='foodForm'){
     const name=String(f.get('name')||'').trim(), samt=num(f.get('samt')), base=f.get('base')==='ml'?'ml':'g';
     if(!name||!samt||samt<=0){toast('Enter a name and serving size.');return}
     const old=sheet.food&&sheet.food.id?foodById(sheet.food.id):null;
     const per100={...(old&&old.per100||{})}; METRICS.forEach(m=>per100[m.k]=(num(f.get(m.k))||0)*100/samt);
+    extraMicros().forEach(x=>{const v=num(f.get(x.k)); if(v!=null&&v>=0) per100[x.k]=v*100/samt; else delete per100[x.k]});
     const sname=String(f.get('sname')||'').trim()||`${fmtQty(samt)} ${base}`;
     const rest=old&&old.servings?old.servings.slice(1):[];
     const rec={...(old||{}),id:old?old.id:'f'+uid6(),name,brand:String(f.get('brand')||'').trim(),barcode:String(f.get('barcode')||'').replace(/\D/g,''),
@@ -1826,7 +1921,7 @@ document.addEventListener('submit',e=>{
   if(id==='todayWeigh'||id==='weighForm'){if(saveWeighin(f)) render(); return}
   if(id==='measureForm'){if(saveMeasures(e.target)) render(); return}
   if(id==='targetsForm'){
-    const t={from:todayKey()}; for(const m of METRICS){const v=num(f.get(m.k)); if(v==null||v<0){toast(`Enter a ${m.n.toLowerCase()} target.`);return} t[m.k]=v}
+    const t={...targetsFor(todayKey()),from:todayKey()}; for(const m of MACROS){const v=num(f.get(m.k)); if(v==null||v<0){toast(`Enter a ${m.n.toLowerCase()} target.`);return} t[m.k]=v}
     state.settings.targets=state.settings.targets.filter(x=>x.from!==t.from).concat(t); touchSettings(); toast('Targets saved'); render(); return}
   if(id==='goalForm'){
     const t=num(f.get('target')), r=num(f.get('pace')), M=model(); if(!t||t<=0||r==null){toast('Enter a target weight.');return}
@@ -1834,6 +1929,7 @@ document.addEventListener('submit',e=>{
     state.settings.goal={targetKg:+fromDisp(t).toFixed(3),ratePct:r,startDate:todayKey(),startKg:M.trendNow,proteinPerKg:lb?pp/KG_PER_LB:pp,fatPct:num(f.get('fatPct'))||30};
     const p=proposal(); if(p) applyProposal(p); else touchSettings();
     closeSheet(); toast(p?`Goal set. Daily budget is now ${fmt(p.targets.kcal)} kcal.`:'Goal set. Your budget follows once expenditure is known.'); render(); return}
+  if(id==='microsForm'){readMicrosForm(); touchSettings(); toast('Micros saved'); render(); return}
   if(id==='profileForm'){
     const h=num(f.get('height')), by=num(f.get('birthYear'));
     state.settings.profile={sex:f.get('sex')||'',birthYear:by||null,heightCm:h?(wUnit()==='lb'?h*2.54:h):null,activity:num(f.get('activity'))||1.375};
@@ -1869,6 +1965,8 @@ document.addEventListener('click',async e=>{
   if(d.act==='addFood'){openAdder(matchMedia('(min-width:641px)').matches);return}
   if(d.tab){tab=d.tab;pendingDelete=null;try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();window.scrollTo(0,0);return}
   if(d.goto){tab=d.goto;render();window.scrollTo(0,0);return}
+  if(d.act==='chooseMicros'){tab='settings';try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();const el=document.getElementById('microsPanel'); if(el) el.scrollIntoView(); return}
+  if(d.rmmicro){readMicrosForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
   if(d.day){day=addDays(day,+d.day);render();return}
   if(d.act==='goToday'){day=todayKey();render();return}
   if(d.pickfood){openSheet({type:'food',food:foodById(d.pickfood)});return}
@@ -1924,6 +2022,8 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape') return; if(sheet) c
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
+  if(t.id==='addMicro'&&t.value){readMicrosForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
+    touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
   if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); return}
   if(t.dataset.site){const on=new Set(state.settings.measureSites||DEFAULT_SITES); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
     state.settings.measureSites=SITES.map(x=>x[0]).filter(k=>on.has(k)); touchSettings(); render(); return}
