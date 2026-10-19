@@ -2,7 +2,7 @@
   "name": "Nutrition Helper",
   "short_name": "Nutrition",
   "description": "Log food and weigh-ins, and see what's left of today's budget.",
-  "id": "./",
+  "id": "/nutrition-helper/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
