@@ -170,9 +170,14 @@ input[type=date],input[type=time],input[type=search]{background:var(--surface);b
 .mic.over .meter i{background:var(--over)}
 .mic.done .rem b{color:var(--ok)}
 .mic.done .meter i{background:var(--ok)}
-.micset{display:grid;grid-template-columns:minmax(0,1fr) auto 96px auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
-.micset input{width:100%}
-@media (max-width:400px){.micset{grid-template-columns:minmax(0,1fr) auto 80px auto;gap:6px}}
+.micset{display:grid;grid-template-columns:minmax(0,1fr) auto 84px 56px;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.micset input{width:100%;padding-left:8px;padding-right:6px}
+.micset select{padding-left:8px;padding-right:4px;font-size:14px}
+.micset .src{display:block;font-size:12px;color:var(--muted)}
+.micset .src.own{color:var(--accent)}
+.micset .x-btn{padding:4px}
+.tgh{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin:14px 0 2px}
+@media (max-width:400px){.micset{grid-template-columns:minmax(0,1fr) auto 70px 52px;gap:6px}}
 .form{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end}
 .form .wide{grid-column:span 2}
 .form .full{grid-column:1/-1}
@@ -450,17 +455,23 @@ function dayNutrients(day){const t={}; for(const e of entriesFor(day)){METRICS.f
 const entryNut=(e,k)=>isMetric(k)?Number(e[k])||0:(e.more&&e.more[k])||0;
 
 /* ---------------- Micros on Today ---------------- */
-// settings.micros: [{k, v, kind}] — the catalog nutrients Today shows under the macros, in order, each with an optional
-// daily limit ('ceiling', a most-per-day) or goal ('floor', a least-per-day). Sodium is one of the five metrics, so its
-// limit stays in the dated targets (and its v here is unused); every other micro keeps its number here.
+// settings.micros: [{k, v, kind}] — the catalog nutrients Today shows under the macros, in order. v is your own daily
+// amount, or null to follow the recommendation below (no target where there isn't one). kind is 'ceiling' (at most),
+// 'floor' (at least) or 'target' (aim for). Sodium included: the dated targets still carry a sodium figure, unused.
 const MACROS=METRICS.filter(m=>m.k!=='sodium');
 const MICRO_CEILING=new Set(['sodium','cholesterol','satFat','transFat','sugars','addedSugars','alcohol','caffeine']);
-const DEFAULT_MICROS=()=>[{k:'sodium',v:null,kind:'ceiling'},{k:'cholesterol',v:300,kind:'ceiling'}];
+const DEFAULT_MICROS=()=>[{k:'sodium',v:null,kind:'ceiling'},{k:'cholesterol',v:null,kind:'ceiling'}];
+// The usual recommendation a micro follows until you set your own: FDA Daily Values for adults, and FDA's 400 mg for caffeine
+const REC={sodium:2300,cholesterol:300,satFat:20,addedSugars:50,fiber:28,potassium:4700,calcium:1300,iron:18,magnesium:420,
+  phosphorus:1250,zinc:11,copper:0.9,manganese:2.3,selenium:55,iodine:150,chloride:2300,chromium:35,molybdenum:45,vitA:900,vitC:90,
+  vitD:20,vitE:15,vitK:120,thiamin:1.2,riboflavin:1.3,niacin:16,pantothenic:5,vitB6:1.7,biotin:30,folate:400,vitB12:2.4,choline:550,caffeine:400};
 const MICRO_OPTIONS=NUTRIENTS.filter(x=>!MACROS.some(m=>m.k===x.k));
 const MICRO_SHORT={sodium:'Na',cholesterol:'Chol',potassium:'K',calcium:'Ca',iron:'Fe',magnesium:'Mg',zinc:'Zn',satFat:'Sat fat',
   transFat:'Trans fat',monoFat:'Mono fat',polyFat:'Poly fat',addedSugars:'Added sugar'};
 const microShort=k=>MICRO_SHORT[k]||NUT[k].n.replace(/^Vitamin /,'Vit ').replace(/ \(.*\)$/,'');
-const microLimit=(c,day)=>{const v=c.k==='sodium'?targetsFor(day).sodium:c.v; return v>0?v:null};
+const microLimit=c=>c.v>0?c.v:REC[c.k]||null;
+// Macros you've set yourself (settings.macroPins) keep their number through weekly check-ins; the rest follow your goal
+const macroKind=m=>state.settings.macroKinds[m.k]||m.kind;
 const fmtNut=v=>fmt(v,v>0&&v<10?1:0);
 // Chosen micros as they read under an entry or a recipe
 function microsMeta(get){return state.settings.micros.map(c=>` · ${microShort(c.k)} ${fmtNut(get(c.k))} ${NUT[c.k].u}`).join('')}
@@ -491,6 +502,8 @@ function defaultSettings(){return{
   lengthUnit:'',   // 'cm' or 'in' for body measurements; empty follows the body weight unit
   measureSites:null,   // which body measurements to show; null is the default set
   micros:DEFAULT_MICROS(),   // micronutrients shown on Today, with optional limits (see Micros on Today)
+  macroPins:{},   // {kcal:true,…}: macros set by hand, left alone by check-ins (see Daily targets)
+  macroKinds:{},   // {carbs:'ceiling',…}: macros you track as at most / at least / aim for, over the usual
   weightOverlay:null,  // measurements drawn on the weight chart, on their own axis; null shows waist
   dayParts:[...DEFAULT_DAY_PARTS],   // start hours of the parts of the day the Foods page breaks usage into
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
@@ -512,6 +525,16 @@ function normalize(j){
   s.settings.profile=Object.assign(defaultSettings().profile,s.settings.profile||{});
   if(!Array.isArray(s.settings.micros)) s.settings.micros=DEFAULT_MICROS();
   s.settings.micros=s.settings.micros.filter(c=>c&&MICRO_OPTIONS.some(x=>x.k===c.k));
+  // Before custom targets, sodium's limit lived in the dated targets and a set number matched the recommendation
+  const fresh=!(j.settings&&j.settings.macroPins), na=s.settings.micros.find(c=>c.k==='sodium'), lastT=[...s.settings.targets].sort((a,b)=>a.from<b.from?1:-1)[0];
+  if(na&&na.v==null&&fresh&&lastT.sodium>0&&lastT.sodium!==REC.sodium) na.v=lastT.sodium;
+  s.settings.micros.forEach(c=>{if(c.v!=null&&c.v===REC[c.k]) c.v=null});
+  // Macros typed in before there were pins count as set by hand, unless a goal has been driving them
+  if(fresh||typeof s.settings.macroPins!=='object'){
+    s.settings.macroPins={};
+    if(!s.settings.goal) MACROS.forEach(m=>{if(lastT[m.k]!=null&&lastT[m.k]!==DEFAULT_TARGETS[m.k]) s.settings.macroPins[m.k]=true});
+  }
+  if(!s.settings.macroKinds||typeof s.settings.macroKinds!=='object') s.settings.macroKinds={};
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
   return s;
 }
@@ -858,11 +881,18 @@ function goalTiming(targetKg,ratePct){
   const weeks=(targetKg-kg)/(kg*ratePct/100);
   return weeks>0?{weeks,date:addDays(todayKey(),Math.ceil(weeks*7))}:null;
 }
+// Macros for a calorie budget: protein from trend weight, fat a share of calories, carbs the rest. Any you've set
+// yourself stay as they are (and the rest work around them); without a goal, the defaults stand in.
 function macrosFor(kcal){
-  const g=state.settings.goal, kg=model().trendNow, cur=targetsFor(todayKey());
-  const protein=Math.round((g.proteinPerKg||1.8)*kg), fat=Math.round(kcal*(g.fatPct||30)/100/9);
-  return {kcal,protein,fat,carbs:Math.max(0,Math.round((kcal-protein*4-fat*9)/4)),sodium:cur.sodium};
+  const g=state.settings.goal, kg=model().trendNow, cur=targetsFor(todayKey()), pin=state.settings.macroPins;
+  if(pin.kcal) kcal=cur.kcal;
+  const protein=pin.protein?cur.protein:g&&kg!=null?Math.round((g.proteinPerKg||1.8)*kg):DEFAULT_TARGETS.protein;
+  const fat=pin.fat?cur.fat:Math.round(kcal*(g&&g.fatPct||30)/100/9);
+  const carbs=pin.carbs?cur.carbs:Math.max(0,Math.round((kcal-protein*4-fat*9)/4));
+  return {kcal,protein,fat,carbs,sodium:cur.sodium};
 }
+// The calorie budget when it isn't set by hand: this week's plan from your goal, or the default without one
+function usualKcal(){const p=state.settings.goal&&proposal(); return p?p.kcal:state.settings.goal?targetsFor(todayKey()).kcal:DEFAULT_TARGETS.kcal}
 const goalReached=g=>{const kg=model().trendNow; return kg!=null&&(g.ratePct<0?kg<=g.targetKg:g.ratePct>0?kg>=g.targetKg:false)};
 // The planned path from where the goal started, at the pace chosen then, flat once the target is reached.
 // A goal set before any weigh-in starts from the first trend weight after it.
@@ -1060,8 +1090,8 @@ function budgetState(kind,eaten,target,u,f=fmt){
 }
 const kindTag=k=>k==='ceiling'?' (max)':k==='floor'?' (min)':'';
 function budgetCard(m,eaten,target){
-  const b=budgetState(m.kind,eaten,target,m.u);
-  return `<div class="m ${b.cls}"><span class="lbl">${m.n}${kindTag(m.kind)}</span>
+  const kind=macroKind(m), b=budgetState(kind,eaten,target,m.u);
+  return `<div class="m ${b.cls}"><span class="lbl">${m.n}${kindTag(kind)}</span>
     <span class="big">${fmt(eaten)}<small> / ${fmt(target)} ${m.u}</small></span>
     <div class="meter" role="img" aria-label="${m.n}: ${fmt(eaten)} of ${fmt(target)} ${m.u}"><i style="width:${b.pct}%"></i></div>
     <span class="rem">${b.rem}</span></div>`;
@@ -1081,7 +1111,7 @@ function microsPanel(){
   const n=dayNutrients(day);
   return `<section class="panel stack micros" aria-label="Micronutrients">
     <div class="row" style="justify-content:space-between"><h3>Micros</h3><button class="btn sm ghost" data-act="chooseMicros">Choose</button></div>
-    <div>${on.map(c=>microRow(c,n[c.k]||0,microLimit(c,day))).join('')}</div></section>`;
+    <div>${on.map(c=>microRow(c,n[c.k]||0,microLimit(c))).join('')}</div></section>`;
 }
 function entryMeta(e){
   const amt=e.qty==null?'':unitKind(e.unit)==='serving'?`${fmtQty(e.qty)} × ${esc(e.unitLabel)} · `:`${fmtQty(e.qty)} ${esc(e.unitLabel)} · `;
@@ -1121,7 +1151,7 @@ function adderLeftHtml(){
   const t=targetsFor(day), tot=totalsFor(day);
   return METRICS.filter(m=>m.k==='kcal'||m.k==='protein').map(m=>{
     const left=t[m.k]-tot[m.k];
-    if(m.kind==='floor') return left<=0?`${m.n} reached`:`<b>${fmt(left)}</b> ${m.u} ${m.n.toLowerCase()} to go`;
+    if(macroKind(m)==='floor') return left<=0?`${m.n} reached`:`<b>${fmt(left)}</b> ${m.u} ${m.n.toLowerCase()} to go`;
     return left<0?`<span class="over"><b>${fmt(-left)}</b> ${m.u} over</span>`:`<b>${fmt(left)}</b> ${m.u} left`;
   }).join(' · ');
 }
@@ -1514,7 +1544,7 @@ function sheetGoal(){
         <label class="field">Protein (g per ${lb?'lb':'kg'})<input type="number" name="protein" inputmode="decimal" step="any" min="0" value="${+(lb?pp*KG_PER_LB:pp).toFixed(2)}"></label>
         <label class="field">Fat (% of calories)<input type="number" name="fatPct" inputmode="decimal" step="1" min="10" max="60" value="${fatPct}"></label>
       </div>
-      <p class="note">Protein is set from your trend weight, fat from calories, and carbs fill the rest. Sodium keeps its current limit.</p>
+      <p class="note">Protein is set from your trend weight, fat from calories, and carbs fill the rest. Any you\u2019ve set yourself in Settings stay as they are.</p>
       <div class="row"><button class="btn primary big" type="submit">Set goal</button></div>
     </form>`;
 }
@@ -1558,16 +1588,22 @@ function viewFoods(){
       :`<p class="empty">No foods yet. Log something from Today, or create one here.</p>`}</section>
   </div>`;
 }
-function microsSettings(){
-  const on=state.settings.micros, t=targetsFor(todayKey()), groups=[...new Set(MICRO_OPTIONS.map(x=>x.g))];
-  const val=c=>{const v=c.k==='sodium'?t.sodium:c.v; return v>0?+fmtQty(v):''};
-  return `<section class="panel stack" id="microsPanel"><h3>Micros on Today</h3>
-    <p class="small muted">Shown under the macros on Today. A limit is the most to have in a day, a goal the least; leave the number empty to just see the amount. Foods from Open Food Facts and USDA bring these when they list them, and your own foods and quick adds get a field for each one picked here.</p>
-    <form id="microsForm" autocomplete="off">
-      ${on.map(c=>`<div class="micset"><span>${NUT[c.k].n} <span class="small muted">${NUT[c.k].u}</span></span>
-        <select name="kind:${c.k}" aria-label="${NUT[c.k].n}: limit or goal"><option value="ceiling"${c.kind==='floor'?'':' selected'}>Limit</option><option value="floor"${c.kind==='floor'?' selected':''}>Goal</option></select>
-        <input type="number" name="v:${c.k}" inputmode="decimal" step="any" min="0" value="${val(c)}" placeholder="None" aria-label="${NUT[c.k].n} per day (${NUT[c.k].u})">
-        <button type="button" class="x-btn" data-rmmicro="${c.k}" aria-label="Stop showing ${NUT[c.k].n}">×</button></div>`).join('')
+const KINDS=[['target','Aim for'],['floor','At least'],['ceiling','At most']];
+const kindSelect=(k,name,kind)=>`<select name="kind:${k}" aria-label="${esc(name)}: aim for, at least or at most">${KINDS.map(([v,l])=>`<option value="${v}"${kind===v?' selected':''}>${l}</option>`).join('')}</select>`;
+// Every nutrient with a target, in one list: type a number to set your own, clear it to go back to the usual one
+function targetsSettings(){
+  const on=state.settings.micros, t=targetsFor(todayKey()), pin=state.settings.macroPins, groups=[...new Set(MICRO_OPTIONS.map(x=>x.g))];
+  const usual=state.settings.goal?'From your goal':'Default';
+  const row=(k,n,u,kind,own,v,ph,src,shown)=>`<div class="micset"><span>${n} <span class="small muted">${u}</span><span class="src${own?' own':''}">${own?'Yours':src}</span></span>
+    ${kindSelect(k,n,kind)}
+    <input type="number" name="v:${k}" inputmode="decimal" step="any" min="0" value="${own?+fmtQty(v):''}" placeholder="${ph}" aria-label="${esc(n)} per day (${u})">
+    <span class="row" style="gap:0;flex-wrap:nowrap">${own?`<button type="button" class="x-btn" data-unset="${k}" aria-label="Go back to the usual ${esc(n)}" title="Use the usual one">↺</button>`:''}${shown?`<button type="button" class="x-btn" data-rmmicro="${k}" aria-label="Stop showing ${esc(n)}">×</button>`:''}</span></div>`;
+  return `<section class="panel stack" id="microsPanel"><h3>Daily targets</h3>
+    <p class="small muted">Type a number to set your own target for any nutrient, and clear it (or tap ↺) to go back to the usual one. Macros usually follow your goal at each weekly check-in; ones you set stay put and the others work around them. Micros usually follow the FDA daily values. Changes apply from today; earlier days keep their macro targets.</p>
+    <form id="targetsForm" autocomplete="off">
+      ${MACROS.map(m=>row(m.k,m.n,m.u,macroKind(m),!!pin[m.k],t[m.k],+fmtQty(t[m.k]),usual,false)).join('')}
+      <div class="tgh">Micros on Today</div>
+      ${on.map(c=>{const x=NUT[c.k]; return row(c.k,x.n,x.u,c.kind,c.v>0,c.v,REC[c.k]!=null?+fmtQty(REC[c.k]):'None',REC[c.k]!=null?'Daily value':'No usual target',true)}).join('')
         ||'<p class="small muted">None picked. Today shows only the macros.</p>'}
       <div class="row" style="margin-top:10px"><select id="addMicro" aria-label="Show another nutrient" style="flex:1 1 200px"><option value="">Show another nutrient…</option>
         ${groups.map(g=>`<optgroup label="${g}">${MICRO_OPTIONS.filter(x=>x.g===g&&!on.some(c=>c.k===x.k)).map(x=>`<option value="${x.k}">${x.n} (${x.u})</option>`).join('')}</optgroup>`).join('')}</select>
@@ -1575,17 +1611,29 @@ function microsSettings(){
     </form>
   </section>`;
 }
-// Takes the limits as typed; sodium's goes into the dated targets from today, like the macros
-function readMicrosForm(){
-  const form=document.getElementById('microsForm'); if(!form) return;
-  const f=new FormData(form);
+// Takes the targets as typed. A macro with a number is pinned; one cleared goes back to what the goal gives, and the
+// unpinned ones that depend on a change (fat on calories, carbs on everything) are worked out again.
+function readTargetsForm(){
+  const form=document.getElementById('targetsForm'); if(!form) return false;
+  const f=new FormData(form), td=todayKey(), cur=targetsFor(td), was=state.settings.macroPins, pins={}, kinds={}, next={...cur,from:td}, changed=new Set();
+  for(const m of MACROS){
+    const v=num(f.get('v:'+m.k)), kind=f.get('kind:'+m.k);
+    if(kind&&kind!==m.kind) kinds[m.k]=kind;
+    if(v>0){pins[m.k]=true; if(v!==cur[m.k]){next[m.k]=v; changed.add(m.k)}}
+    else if(was[m.k]) changed.add(m.k);
+  }
+  state.settings.macroPins=pins; state.settings.macroKinds=kinds;
+  const g=state.settings.goal, kg=model().trendNow;
+  if(!pins.kcal&&was.kcal) next.kcal=usualKcal();
+  if(!pins.protein&&was.protein) next.protein=g&&kg!=null?Math.round((g.proteinPerKg||1.8)*kg):DEFAULT_TARGETS.protein;
+  if(!pins.fat&&(was.fat||changed.has('kcal'))) next.fat=Math.round(next.kcal*(g&&g.fatPct||30)/100/9);
+  if(!pins.carbs&&(was.carbs||changed.size)) next.carbs=Math.max(0,Math.round((next.kcal-next.protein*4-next.fat*9)/4));
+  if(MACROS.some(m=>next[m.k]!==cur[m.k])) state.settings.targets=state.settings.targets.filter(x=>x.from!==td).concat(next);
   state.settings.micros=state.settings.micros.map(c=>{
-    const v=num(f.get('v:'+c.k)), kind=f.get('kind:'+c.k)==='floor'?'floor':'ceiling';
-    if(c.k==='sodium'){const cur=targetsFor(todayKey()), nv=v>0?v:0;
-      if(nv!==cur.sodium) state.settings.targets=state.settings.targets.filter(x=>x.from!==todayKey()).concat({...cur,from:todayKey(),sodium:nv});
-      return {k:c.k,v:null,kind}}
-    return {k:c.k,v:v>0?v:null,kind};
+    const v=num(f.get('v:'+c.k)), kind=f.get('kind:'+c.k)||c.kind;
+    return {k:c.k,v:v>0&&v!==REC[c.k]?v:null,kind};
   });
+  return true;
 }
 function dayPartsSettings(){
   const h=dayParts();
@@ -1612,14 +1660,7 @@ function viewSettings(){
     <div class="seg" role="group" aria-label="${label}">${Object.keys(UNITS).filter(u=>UNITS[u].kind===kind&&u!=='kg'&&u!=='l').map(u=>`<button data-unitpref="${kind}:${u}" aria-pressed="${p[kind]===u}">${UNITS[u].n}</button>`).join('')}</div></div>`;
   return `<div class="stack">
     <h2>Settings</h2>
-    <section class="panel stack"><h3>Daily targets</h3>
-      <p class="small muted">Used from today onward. Earlier days keep the targets they had.</p>
-      <form class="form" id="targetsForm" autocomplete="off">
-        ${MACROS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${t[m.k]}" required></label>`).join('')}
-        <div class="row" style="align-self:end"><button class="btn primary" type="submit">Save targets</button></div>
-      </form>
-    </section>
-    ${microsSettings()}
+    ${targetsSettings()}
     ${dayPartsSettings()}
     <section class="panel stack"><h3>Profile</h3>
       <p class="small muted">Used for a starting estimate of your expenditure, before there\u2019s enough logging to measure it.</p>
@@ -2282,16 +2323,13 @@ document.addEventListener('submit',e=>{
   if(id==='barcodeForm'){gotBarcode(f.get('code')); return}
   if(id==='todayWeigh'||id==='weighForm'){if(saveWeighin(f)) render(); return}
   if(id==='measureForm'){if(saveMeasures(e.target)) render(); return}
-  if(id==='targetsForm'){
-    const t={...targetsFor(todayKey()),from:todayKey()}; for(const m of MACROS){const v=num(f.get(m.k)); if(v==null||v<0){toast(`Enter a ${m.n.toLowerCase()} target.`);return} t[m.k]=v}
-    state.settings.targets=state.settings.targets.filter(x=>x.from!==t.from).concat(t); touchSettings(); toast('Targets saved'); render(); return}
+  if(id==='targetsForm'){readTargetsForm(); touchSettings(); toast('Targets saved'); render(); return}
   if(id==='goalForm'){
     const t=num(f.get('target')), r=num(f.get('pace')), M=model(); if(!t||t<=0||r==null){toast('Enter a target weight.');return}
     const lb=wUnit()==='lb', pp=num(f.get('protein'))||(lb?0.8:1.8);
     state.settings.goal={targetKg:+fromDisp(t).toFixed(3),ratePct:r,startDate:todayKey(),startKg:M.trendNow,proteinPerKg:lb?pp/KG_PER_LB:pp,fatPct:num(f.get('fatPct'))||30};
     const p=proposal(); if(p) applyProposal(p); else touchSettings();
     closeSheet(); toast(p?`Goal set. Daily budget is now ${fmt(p.targets.kcal)} kcal.`:'Goal set. Your budget follows once expenditure is known.'); render(); return}
-  if(id==='microsForm'){readMicrosForm(); touchSettings(); toast('Micros saved'); render(); return}
   if(id==='dayPartsForm'){if(setDayParts(readDayParts())){toast('Parts of the day saved'); render()} return}
   if(id==='profileForm'){
     const h=num(f.get('height')), by=num(f.get('birthYear'));
@@ -2334,7 +2372,8 @@ document.addEventListener('click',async e=>{
   if(d.act==='chooseMicros'){tab='settings';try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();const el=document.getElementById('microsPanel'); if(el) el.scrollIntoView(); return}
   if(d.rmpart){const h=readDayParts(); h.splice(+d.rmpart,1); if(setDayParts(h)) render(); return}
   if(d.foodsort){foodSort=d.foodsort; try{sessionStorage.setItem('nh.foodSort',foodSort)}catch(_){} render(); return}
-  if(d.rmmicro){readMicrosForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
+  if(d.unset){const el=document.querySelector(`#targetsForm [name="v:${d.unset}"]`); if(el) el.value=''; readTargetsForm(); touchSettings(); toast('Back to the usual target'); render(); return}
+  if(d.rmmicro){readTargetsForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
   if(d.day){day=addDays(day,+d.day);render();return}
   if(d.act==='goToday'){day=todayKey();render();return}
   if(d.pickfood){openSheet({type:'food',food:foodById(d.pickfood)});return}
@@ -2402,7 +2441,7 @@ document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
   if(t.id==='listSort'){listSort=t.value; try{localStorage.setItem('nh.listSort',listSort)}catch(_){} render(); return}
-  if(t.id==='addMicro'&&t.value){readMicrosForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
+  if(t.id==='addMicro'&&t.value){readTargetsForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
     touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
   if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); drawLeaders(); return}
   if(t.dataset.site){const on=new Set(state.settings.measureSites||defaultSites()); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
