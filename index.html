@@ -218,6 +218,23 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .mform label.field .was{font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint);font-family:var(--f-mono);min-height:1.3em}
 .mform label.field .was b{font-weight:600;color:var(--accent)}
 .mtbl td,.mtbl th{text-align:right}.mtbl td:first-child,.mtbl th:first-child{text-align:left}
+.bodymap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,200px) minmax(0,1fr);gap:0 14px;align-items:start}
+.bm-col{display:flex;flex-direction:column;gap:8px;position:relative;z-index:1}
+.bm-col.placed label.field{position:absolute;left:0;right:0}
+.bm-col.l label.field{margin-left:auto;text-align:right}
+.bm-col label.field{width:100%;max-width:150px}
+.bm-col.l.placed label.field{left:auto}
+.bm-col label.field input{padding-top:6px;padding-bottom:6px}
+.bm-col label.field .was{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:0}
+.bm-fig{padding-top:8px}
+.bm-fig svg{width:100%;height:auto;display:block}
+.bm-fig .ol{stroke:var(--line);fill:none;stroke-linecap:round;stroke-linejoin:round}
+.bm-fig .fl{stroke:var(--sunk);fill:none;stroke-linecap:round;stroke-linejoin:round}
+.bm-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.bm-lines path{fill:none;stroke:var(--faint);stroke-width:1}
+.bm-lines circle{fill:var(--accent)}
+.bm-lines .on path{stroke:var(--accent);stroke-width:1.5}
+@media (max-width:520px){.bodymap{grid-template-columns:minmax(0,1fr) 140px minmax(0,1fr);gap:0 6px}.bm-col label.field{font-size:11px}.bm-col .was:not(.chg){display:none}}
 .sites{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px}
 .sites label{display:inline-flex;gap:6px;align-items:center}
 .picks label{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
@@ -239,9 +256,18 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .scanbox::after{content:"";position:absolute;left:12%;right:12%;top:38%;bottom:38%;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 999px rgba(0,0,0,.25)}
 .note{font-size:13px;color:var(--muted)}
 /* charts: colors validated for both themes (scale dots stay neutral; goal path also dashed) */
-:root{--c-a:#c2410c;--c-b:#2f6fd0}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--c-a:#e06a2e;--c-b:#5b8de0}}
-:root[data-theme="dark"]{--c-a:#e06a2e;--c-b:#5b8de0}
+:root{--c-a:#c2410c;--c-b:#2f6fd0;--c-c:#0f8a7e;--c-d:#8a4fc9;--c-e:#b8860b;--c-f:#c23a78;--c-g:#55803a}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--c-a:#e06a2e;--c-b:#5b8de0;--c-c:#2fb5a6;--c-d:#a87ce0;--c-e:#d9a930;--c-f:#e06aa0;--c-g:#86b363}}
+:root[data-theme="dark"]{--c-a:#e06a2e;--c-b:#5b8de0;--c-c:#2fb5a6;--c-d:#a87ce0;--c-e:#d9a930;--c-f:#e06aa0;--c-g:#86b363}
+.chart .ln.c-c{stroke:var(--c-c)} .chart .ln.c-d{stroke:var(--c-d)} .chart .ln.c-e{stroke:var(--c-e)} .chart .ln.c-f{stroke:var(--c-f)} .chart .ln.c-g{stroke:var(--c-g)}
+.key.c-c{border-color:var(--c-c)} .key.c-d{border-color:var(--c-d)} .key.c-e{border-color:var(--c-e)} .key.c-f{border-color:var(--c-f)} .key.c-g{border-color:var(--c-g)}
+.chart .bar.c-b{fill:var(--c-b)} .chart .bar.c-c{fill:var(--c-c)} .chart .bar.c-e{fill:var(--c-e)}
+.key.stack{height:10px;border:0;border-radius:2px;width:10px}
+.key.stack.c-b{background:var(--c-b)} .key.stack.c-c{background:var(--c-c)} .key.stack.c-e{background:var(--c-e)}
+.chart .tick.r{fill:var(--faint)}
+.overlay{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.overlay .chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--muted)}
+.overlay .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .chart{position:relative;min-height:120px}
 .chart svg{display:block;overflow:visible}
 .chart .grid{stroke:var(--line);stroke-width:1}
@@ -443,6 +469,7 @@ function defaultSettings(){return{
   lengthUnit:'',   // 'cm' or 'in' for body measurements; empty follows the body weight unit
   measureSites:null,   // which body measurements to show; null is the default set
   micros:DEFAULT_MICROS(),   // micronutrients shown on Today, with optional limits (see Micros on Today)
+  weightOverlay:null,  // measurements drawn on the weight chart, on their own axis; null shows waist
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
@@ -505,9 +532,13 @@ const weighinOn=day=>state.weighins.find(w=>w.date===day);
 /* ---------------- Body measurements ---------------- */
 // A measurement check-in: {id, date, v:{site: cm}} holding only the sites measured that day. Sites left alone
 // carry forward from their last check-in, so slow movers (neck, calves) don't need re-measuring every time.
-const SITES=[['neck','Neck'],['shoulders','Shoulders'],['chest','Chest'],['armL','Left arm'],['armR','Right arm'],['forearmL','Left forearm'],['forearmR','Right forearm'],
-  ['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf']];
+const SITES=[['forehead','Forehead'],['neck','Neck'],['shoulders','Shoulders'],['chest','Chest'],['underbust','Underbust'],['armL','Left bicep'],['armR','Right bicep'],['forearmL','Left forearm'],['forearmR','Right forearm'],
+  ['wristL','Left wrist'],['wristR','Right wrist'],['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf'],
+  ['ankleL','Left ankle'],['ankleR','Right ankle']];
 const DEFAULT_SITES=['neck','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
+// Underbust is offered when the profile isn't set to male, and shown by default when it's female
+const siteOffered=k=>k!=='underbust'||state.settings.profile.sex!=='male';
+const defaultSites=()=>state.settings.profile.sex==='female'?[...DEFAULT_SITES,'underbust']:DEFAULT_SITES;
 const siteName=k=>(SITES.find(x=>x[0]===k)||[k,k])[1];
 const lUnit=()=>state.settings.lengthUnit||(wUnit()==='lb'?'in':'cm');
 const toLen=cm=>lUnit()==='in'?cm/2.54:cm;
@@ -521,8 +552,8 @@ function measureAsOf(site,d,before){
   return hit;
 }
 function trackedSites(){
-  const on=new Set(state.settings.measureSites||DEFAULT_SITES);
-  return SITES.map(x=>x[0]).filter(k=>on.has(k));
+  const on=new Set(state.settings.measureSites||defaultSites());
+  return SITES.map(x=>x[0]).filter(k=>on.has(k)&&siteOffered(k));
 }
 
 /* ---------------- Foods & amounts ---------------- */
@@ -1151,14 +1182,80 @@ function viewWeight(){
 }
 function measureField(k,d){
   const cur=measureAsOf(k,d), prev=measureAsOf(k,d,true), rec=measureOn(d), today=rec&&rec.v&&rec.v[k]!=null;
-  const was=today?(prev?`was ${fmtL(prev.cm)} on ${shortDate(prev.date)}`:'first measurement'):cur?`since ${shortDate(cur.date)}`:'not measured yet';
-  return `<label class="field">${esc(siteName(k))}<input type="number" name="m_${k}" inputmode="decimal" step="0.1" min="0" value="${cur?toLen(cur.cm).toFixed(1):''}" data-base="${prev&&today?toLen(prev.cm).toFixed(1):''}">
+  const was=today?(prev?`was ${fmtL(prev.cm)} on ${shortDate(prev.date)}`:'first measurement'):cur?`since ${shortDate(cur.date)}`:'not yet';
+  return `<label class="field" data-msite="${k}">${esc(siteName(k))}<input type="number" name="m_${k}" inputmode="decimal" step="0.1" min="0" value="${cur?toLen(cur.cm).toFixed(1):''}" data-base="${prev&&today?toLen(prev.cm).toFixed(1):''}">
     <span class="was" data-was="${k}">${esc(was)}</span></label>`;
 }
+// Front-view figure, 200 wide by 480 tall; the person's right is on the left of the picture.
+// Each site has an anchor where the tape goes: [y, half-width] for the midline, [x, y] for a side (left side; the right mirrors it).
+const BODY_MID={forehead:[30,21],neck:[78,11],shoulders:[96,47],chest:[122,40],underbust:[142,36],waist:[180,33],abdomen:[200,36],hips:[232,45]};
+const BODY_SIDE={arm:[156,140],forearm:[166,222],wrist:[169,262],thigh:[124,290],calf:[120,385],ankle:[118,438]};
+function bodyAnchor(k){
+  if(BODY_MID[k]) return null;
+  const side=k.slice(-1), p=BODY_SIDE[k.slice(0,-1)]; return side==='L'?[p[0],p[1]]:[200-p[0],p[1]];
+}
+function bodySvg(){
+  const limbs='M58,96 L46,142 L38,190 L34,262 M142,96 L154,142 L162,190 L166,262 M80,236 L77,340 L80,440 M120,236 L123,340 L120,440';
+  const thick=[['M58,96 L46,142 L40,190 M142,96 L154,142 L160,190',22],['M40,190 L34,262 M160,190 L166,262',15],['M34,262 L32,282 M166,262 L168,282',13],
+    ['M80,236 L78,340 M120,236 L122,340',36],['M78,340 L80,438 M122,340 L120,438',22],['M80,440 L74,462 M120,440 L126,462',14]];
+  const torso='M66,88 Q100,80 134,88 L146,98 Q150,108 146,124 L138,168 Q134,182 138,200 L146,236 Q148,252 130,254 L100,250 L70,254 Q52,252 54,236 L62,200 Q66,182 62,168 L54,124 Q50,108 54,98 Z';
+  const draw=(cls,extra)=>thick.map(([d,w])=>`<path class="${cls}" d="${d}" stroke-width="${w+extra}"/>`).join('');
+  return `<svg viewBox="0 0 200 480" aria-hidden="true" data-bodyfig>
+    ${draw('ol',3)}<path d="${torso}" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/><rect x="91" y="62" width="18" height="28" rx="6" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/>
+    <ellipse cx="100" cy="38" rx="22" ry="28" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/>
+    ${draw('fl',0)}<path d="${torso}" fill="var(--sunk)"/><rect x="92.5" y="70" width="15" height="24" fill="var(--sunk)"/>
+  </svg>`;
+}
+// Which column each tracked site's box sits in: right-side sites on the left, left-side on the right, midline ones shared out
+function bodyColumns(sites){
+  const y=k=>BODY_MID[k]?BODY_MID[k][0]:bodyAnchor(k)[1], l=[], r=[];
+  for(const k of [...sites].sort((a,b)=>y(a)-y(b))){
+    if(k.endsWith('R')&&!BODY_MID[k]) l.push(k); else if(k.endsWith('L')&&!BODY_MID[k]) r.push(k);
+  }
+  const mids=sites.filter(k=>BODY_MID[k]).sort((a,b)=>y(a)-y(b));
+  mids.forEach(k=>(l.length<=r.length?l:r).push(k));
+  const by=a=>a.sort((p,q)=>y(p)-y(q));
+  return [by(l),by(r)];
+}
+// Leader lines from each box to where on the body it's measured, redrawn whenever the layout moves
+function drawLeaders(){
+  const map=document.getElementById('bodyMap'); if(!map) return;
+  const svg=map.querySelector('.bm-lines'), fig=map.querySelector('[data-bodyfig]');
+  // Set each box beside its spot on the body, nudged down where boxes would overlap
+  let fr=fig.getBoundingClientRect(), sc=fr.width/200, figTop=fr.top-map.getBoundingClientRect().top, bottom=fr.height+figTop;
+  for(const col of map.querySelectorAll('.bm-col')){
+    const labs=[...col.querySelectorAll('[data-msite]')]; let next=0;
+    col.classList.add('placed');
+    for(const lab of labs){
+      const k=lab.dataset.msite, ay=(BODY_MID[k]?BODY_MID[k][0]:bodyAnchor(k)[1])*sc+figTop, inp=lab.querySelector('input');
+      const off=inp.offsetTop+inp.offsetHeight/2, top=Math.max(next,ay-off);
+      lab.style.top=top+'px'; next=top+lab.offsetHeight+6;
+    }
+    col.style.height=next+'px'; bottom=Math.max(bottom,next);
+  }
+  map.style.minHeight=bottom+'px';
+  const mr=map.getBoundingClientRect(); fr=fig.getBoundingClientRect();
+  const focus=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('[data-msite]');
+  svg.innerHTML=[...map.querySelectorAll('[data-msite]')].map(lab=>{
+    const k=lab.dataset.msite, inp=lab.querySelector('input'), ir=inp.getBoundingClientRect(), left=!!lab.closest('.bm-col.l');
+    const m=BODY_MID[k], p=m?[left?100-m[1]:100+m[1],m[0]]:bodyAnchor(k);
+    const sx=(left?ir.right:ir.left)-mr.left, sy=ir.top+ir.height/2-mr.top, ax=fr.left-mr.left+p[0]*sc, ay=fr.top-mr.top+p[1]*sc, kx=sx+(left?6:-6);
+    return `<g${lab===focus?' class="on"':''}><path d="M${sx.toFixed(1)},${sy.toFixed(1)}H${kx.toFixed(1)}L${ax.toFixed(1)},${ay.toFixed(1)}"/><circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="2.5"/></g>`;
+  }).join('');
+}
+document.addEventListener('focusin',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) drawLeaders()});
+document.addEventListener('focusout',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) setTimeout(drawLeaders)});
+window.addEventListener('resize',()=>{clearTimeout(drawLeaders.t); drawLeaders.t=setTimeout(drawLeaders,100)});
 function measureForm(d){
+  const [l,r]=bodyColumns(trackedSites());
   return `<form class="form mform" id="measureForm" autocomplete="off">
     <label class="field">Date<input type="date" name="date" id="mDate" value="${d}" required></label>
-    ${trackedSites().map(k=>measureField(k,d)).join('')}
+    <div class="full bodymap" id="bodyMap">
+      <div class="bm-col l">${l.map(k=>measureField(k,d)).join('')}</div>
+      <div class="bm-fig">${bodySvg()}</div>
+      <div class="bm-col r">${r.map(k=>measureField(k,d)).join('')}</div>
+      <svg class="bm-lines" aria-hidden="true"></svg>
+    </div>
     <div class="row full"><button class="btn primary" type="submit">Save measurements</button>
       <span class="small muted">Change only what you re-measured. The rest carry forward.</span></div>
   </form>`;
@@ -1171,8 +1268,9 @@ function measureRowsHtml(){
     return `<tr><td>${esc(siteName(k))}<br><span class="small muted">${esc(shortDate(cur.date))}</span></td><td class="mono">${fmtL(cur.cm)}</td><td class="mono">${dlt(cur.cm,prev&&prev.cm)}</td><td class="mono">${first.date===cur.date?'–':dlt(cur.cm,first.v[k])}</td></tr>`}).join('');
   return `<div class="tbl"><table class="mtbl"><thead><tr><th>Measurement</th><th>Now (${lUnit()})</th><th>Change</th><th>Since start</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+let sitesOpen=false;   // keeps the measurement picker open while ticking several
 function viewBody(){
-  const ms=measuresSorted().reverse(), on=new Set(state.settings.measureSites||DEFAULT_SITES);
+  const ms=measuresSorted().reverse(), on=new Set(state.settings.measureSites||defaultSites());
   return `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>Measurements</h2>
       <div class="seg" role="group" aria-label="Measurement unit">${['cm','in'].map(u=>`<button data-lunit="${u}" aria-pressed="${lUnit()===u}">${u}</button>`).join('')}</div></div>
@@ -1180,8 +1278,8 @@ function viewBody(){
     <section class="panel stack"><h3>${ms.length?'New check-in':'Add your first measurements'}</h3>
       <p class="small muted">${ms.length?'Each box starts at your last value. Adjust the ones you re-measured and leave slower-moving ones as they are.':'Measure what you like; anything left blank can be added later.'}</p>
       <div id="mFormHost">${measureForm(todayKey())}</div>
-      <details><summary class="small muted">Choose measurements</summary>
-        <div class="sites">${SITES.map(([k,n])=>`<label><input type="checkbox" data-site="${k}"${on.has(k)?' checked':''}>${esc(n)}</label>`).join('')}</div></details>
+      <details${sitesOpen?' open':''}><summary class="small muted">Choose measurements</summary>
+        <div class="sites">${SITES.filter(([k])=>siteOffered(k)).map(([k,n])=>`<label><input type="checkbox" data-site="${k}"${on.has(k)?' checked':''}>${esc(n)}</label>`).join('')}</div></details>
     </section>
     <section class="panel stack"><h3>History</h3>
       ${ms.length?`<div>${ms.slice(0,60).map(m=>`<div class="wrow"><span class="d">${esc(dayLabel(m.date))}</span>
@@ -1373,28 +1471,44 @@ function chartCard(spec){
   const legend=spec.series.length>1?`<div class="legend">${spec.series.map(s=>`<span><i class="key ${s.mark} c-${s.color}"></i>${esc(s.name)}</span>`).join('')}</div>`:'';
   const tableRows=spec.rows.filter(spec.tableIf||(r=>spec.series.some(s=>r[s.k]!=null))).slice(-60).reverse();
   return `<section class="panel stack chart-card"><h3>${esc(spec.title)}</h3>${legend}
-    <div class="chart" data-chart="${spec.id}"></div>
+    <div class="chart" data-chart="${spec.id}"></div>${spec.foot||''}
     <details><summary class="small muted">Data table</summary><div class="tbl"><table><thead><tr><th>${spec.weekly?'Week of':'Date'}</th>${spec.series.map(s=>`<th>${esc(s.name)}</th>`).join('')}</tr></thead>
-      <tbody>${tableRows.map(r=>`<tr><td>${esc(shortDate(r.date))}</td>${spec.series.map(s=>`<td>${r[s.k]==null?'–':fmt(s.conv?s.conv(r[s.k]):r[s.k],spec.dp)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <tbody>${tableRows.map(r=>`<tr><td>${esc(shortDate(r.date))}</td>${spec.series.map(s=>`<td>${r[s.k]==null?'–':fmt(s.conv?s.conv(r[s.k]):r[s.k],s.dp??spec.dp)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
       ${spec.rows.length>60?'<p class="small muted">Latest 60 rows.</p>':''}</details>
   </section>`;
 }
 function drawChart(el){
   const spec=CHARTS[el.dataset.chart]; if(!spec) return;
-  const rows=spec.rows, n=rows.length, W=Math.max(260,el.clientWidth), H=spec.h||180, pl=44, pr=10, pt=8, pb=22;
+  const rows=spec.rows, n=rows.length, W=Math.max(260,el.clientWidth), H=spec.h||180, pl=44, pt=8, pb=22; let pr=10;
   const val=(s,r)=>r[s.k]==null?null:(s.conv?s.conv(r[s.k]):r[s.k]);
-  const vals=spec.series.flatMap(s=>rows.map(r=>val(s,r))).filter(v=>v!=null);
+  // Series with axis:'r' (measurements on the weight chart) get their own scale, labelled on the right
+  const left=spec.series.filter(s=>s.axis!=='r'), right=spec.series.filter(s=>s.axis==='r');
+  // 'stack' series pile up per row (protein, fat and carbs), so the scale needs their totals
+  const stacks=left.filter(s=>s.mark==='stack'), stackSum=r=>stacks.reduce((a,s)=>a+(val(s,r)||0),0);
+  const vals=[...left.flatMap(s=>rows.map(r=>val(s,r))),...(stacks.length?rows.map(stackSum):[])].filter(v=>v!=null), rvals=right.flatMap(s=>rows.map(r=>val(s,r))).filter(v=>v!=null);
+  if(rvals.length) pr=44;
   if(!vals.length){el.innerHTML='<p class="empty">No data in this range yet.</p>';return}
   let lo=Math.min(...vals), hi=Math.max(...vals);
   if(spec.zero) lo=Math.min(0,lo); else {const pad=(hi-lo)*0.08||1; lo-=pad; hi+=pad}
   const ticks=niceTicks(lo,hi); lo=spec.zero?0:ticks[0]; hi=ticks[ticks.length-1];
-  const bw=(W-pl-pr)/n, x=i=>pl+(i+0.5)*bw, y=v=>pt+(H-pt-pb)*(1-(v-lo)/(hi-lo||1));
+  const bw=(W-pl-pr)/n, x=i=>pl+(i+0.5)*bw, y=v=>pt+(H-pt-pb)*(1-(v-lo)/(hi-lo||1)), yl=y;
   let g=ticks.filter(v=>v>=lo&&v<=hi).map(v=>`<line class="grid" x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${pl-6}" y="${y(v)+4}" text-anchor="end">${fmt(v,hi-lo<5?1:0)}</text>`).join('');
   const every=Math.max(1,Math.ceil(n/Math.max(2,Math.floor((W-pl)/70)))), lab=spec.weekly||n>120?monthYear:shortDate;
   for(let i=0;i<n;i+=every) g+=`<text class="tick" x="${x(i)}" y="${H-6}" text-anchor="middle">${esc(lab(rows[i].date))}</text>`;
+  let ry=null;
+  if(rvals.length){
+    let a=Math.min(...rvals), b=Math.max(...rvals); const p=(b-a)*0.08||1; const rt=spec.zero?niceTicks(0,b):niceTicks(a-p,b+p); a=rt[0]; b=rt[rt.length-1];
+    ry=v=>pt+(H-pt-pb)*(1-(v-a)/(b-a||1));
+    const st=rt[1]-rt[0], rdp=st>=1?0:Math.abs(st*10-Math.round(st*10))<1e-9?1:2;
+    g+=rt.map(v=>`<text class="tick r" x="${W-pr+6}" y="${ry(v)+4}" text-anchor="start">${fmt(v,rdp)}</text>`).join('');
+  }
   for(const s of spec.series){
-    const pts=rows.map((r,i)=>[i,val(s,r)]);
-    if(s.mark==='bar'){
+    const pts=rows.map((r,i)=>[i,val(s,r)]), y=s.axis==='r'?ry:yl;
+    if(s.mark==='stack'){
+      const w=Math.max(1,Math.min(16,bw-2));
+      g+=pts.filter(p=>p[1]!=null&&p[1]>0).map(([i,v])=>{const b0=stacks.slice(0,stacks.indexOf(s)).reduce((a,t)=>a+(val(t,rows[i])||0),0);
+        return `<rect class="bar c-${s.color}" x="${x(i)-w/2}" y="${y(b0+v)}" width="${w}" height="${Math.max(0,y(b0)-y(b0+v))}"/>`}).join('');
+    }else if(s.mark==='bar'){
       const w=Math.max(1,Math.min(16,bw-2)), r0=Math.min(2,w/2);
       g+=pts.filter(p=>p[1]!=null).map(([i,v])=>{const top=y(Math.max(v,lo)), h=Math.max(0,y(lo)-top); return `<path class="bar c-${s.color}" d="M${x(i)-w/2},${top+h}V${top+r0}q0,-${r0} ${r0},-${r0}h${w-2*r0}q${r0},0 ${r0},${r0}V${top+h}Z"/>`}).join('');
     }else if(s.mark==='dots'){
@@ -1423,7 +1537,7 @@ function chartHover(el,clientX){
   for(const s of spec.series){
     const v=r[s.k]; const row=document.createElement('div'); row.className='tip-r';
     const key=document.createElement('i'); key.className=`key ${s.mark} c-${s.color}`;
-    const b=document.createElement('b'); b.textContent=v==null?'–':`${fmt(s.conv?s.conv(v):v,spec.dp)} ${spec.unit}`;
+    const b=document.createElement('b'); b.textContent=v==null?'–':`${fmt(s.conv?s.conv(v):v,s.dp??spec.dp)} ${s.unit||spec.unit}`;
     const nm=document.createElement('span'); nm.textContent=s.name;
     row.append(key,b,nm); tip.append(row);
   }
@@ -1463,19 +1577,34 @@ function measureCharts(){
       series:[{k:'cur',name:'Current',mark:'line',color:'a',conv:lconv},{k:'read',name:'Measured',mark:'dots',color:'a',conv:lconv}]})}).filter(Boolean);
   return cards.length?`<h3>Measurements</h3><div class="two">${cards.join('')}</div>`:'';
 }
+// Each overlaid measurement's carried value on every row of the weight chart
+function addOverlay(rows,keys){
+  const ms=measuresSorted();
+  for(const k of keys){let i=0, carry=null; for(const r of rows){const end=r.end||r.date; while(i<ms.length&&ms[i].date<=end){if(ms[i].v&&ms[i].v[k]!=null) carry=ms[i].v[k]; i++} r['ov_'+k]=carry}}
+}
+const OVERLAY_COLORS=['c','d','e','f','g'];
+function overlayKeys(){const have=new Set(state.measurements.flatMap(m=>Object.keys(m.v||{}))); return (state.settings.weightOverlay||['waist']).filter(k=>have.has(k)&&siteOffered(k))}
+function overlayPicker(){
+  const have=new Set(state.measurements.flatMap(m=>Object.keys(m.v||{}))), sites=SITES.map(x=>x[0]).filter(k=>have.has(k)&&siteOffered(k)); if(!sites.length) return '';
+  const on=overlayKeys();
+  return `<div class="overlay" role="group" aria-label="Measurements to show with weight"><span class="small muted">Measurements:</span>${sites.map(k=>`<button class="chip" data-overlay="${k}" aria-pressed="${on.includes(k)}">${esc(siteName(k))}</button>`).join('')}</div>`;
+}
 function viewTrends(){
-  const {rows,weekly}=chartRows(), wconv=v=>toDisp(v), mc=measureCharts();
+  const {rows,weekly}=chartRows(), wconv=v=>toDisp(v), mc=rows.length?'':measureCharts(), ov=overlayKeys(), lconv=v=>toLen(v);
+  addOverlay(rows,ov);
   const mk=(id,title,unit,dp,series,extra={})=>chartCard({id,title,unit,dp,rows,weekly,series,...extra});
   const nutr=m=>mk(m.k,`${m.n} (${m.u})`,m.u,0,[{k:m.k,name:weekly?'Daily average':'Eaten',mark:'bar',color:'a'},{k:'t_'+m.k,name:m.kind==='ceiling'?'Limit':m.kind==='floor'?'Minimum':'Target',mark:'step',color:'ink'}],{zero:true});
   return `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>Trends</h2>
       <div class="seg" role="group" aria-label="Time range">${RANGES.map(([k,l])=>`<button data-range="${k}" aria-pressed="${range===k}">${l}</button>`).join('')}</div></div>
     ${rows.length?`${weekly?'<p class="small muted">Long ranges show weekly averages.</p>':''}
-    ${mk('weight',`Weight (${wUnit()})`,wUnit(),1,[{k:'scale',name:'Scale',mark:'dots',color:'faint',conv:wconv},{k:'trend',name:'Trend',mark:'line',color:'a',conv:wconv},
-      ...(state.settings.goal?[{k:'goal',name:'Goal path',mark:'dash',color:'b',conv:wconv}]:[])],{h:220})}
+    ${mk('weight',ov.length?`Weight (${wUnit()}) & measurements (${lUnit()})`:`Weight (${wUnit()})`,wUnit(),1,[{k:'scale',name:'Scale',mark:'dots',color:'faint',conv:wconv},{k:'trend',name:'Trend',mark:'line',color:'a',conv:wconv},
+      ...(state.settings.goal?[{k:'goal',name:'Goal path',mark:'dash',color:'b',conv:wconv}]:[]),
+      ...ov.map((k,i)=>({k:'ov_'+k,name:siteName(k),mark:'line',color:OVERLAY_COLORS[i],conv:lconv,axis:'r',unit:lUnit()}))],{h:240,foot:overlayPicker()})}
     <div class="two">${mk('tdee','Expenditure (kcal/day)','kcal',0,[{k:'tdee',name:'Expenditure',mark:'line',color:'a'}])}
       ${mk('bodyfat','Body fat (%)','%',1,[{k:'bf',name:'Body fat',mark:'dots',color:'a'}])}</div>
-    ${nutr(METRICS[0])}
+    ${mk('macros','Calories & macros','g',0,[{k:'protein',name:'Protein (g)',mark:'stack',color:'b'},{k:'fat',name:'Fat (g)',mark:'stack',color:'e'},{k:'carbs',name:'Carbs (g)',mark:'stack',color:'c'},
+      {k:'kcal',name:'Calories (right)',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240})}
     <div class="two">${METRICS.slice(1).map(nutr).join('')}</div>`
     :mc?'':`<p class="empty">Log food and weigh-ins to see trends here.</p>`}
     ${mc}
@@ -1940,7 +2069,8 @@ document.addEventListener('input',e=>{
   const t=e.target;
   if(t.name&&t.name.startsWith('m_')&&t.form&&t.form.id==='measureForm'){
     const was=t.form.querySelector(`[data-was="${t.name.slice(2)}"]`), base=num(t.dataset.base||t.defaultValue), x=num(t.value);
-    if(!was||t.value===t.defaultValue) return;
+    if(!was) return;
+    const chg=t.value!==t.defaultValue; if(was.classList.contains('chg')!==chg){was.classList.toggle('chg',chg); setTimeout(drawLeaders)} if(!chg) return;
     was.innerHTML=x==null?'cleared':base==null?'new':`from ${esc(fmt(base,1))} <b>${x-base>0?'+':x-base<0?'−':'±'}${Math.abs(x-base).toFixed(1)}</b>`;
     return}
   if(t.id==='foodQ'){search.q=t.value; clearTimeout(search.timer); search.seq++; search.off=search.usda=null; search.err={}; search.busy={off:false,usda:false}; refreshResults(); search.timer=setTimeout(runSearch,650); return}
@@ -2000,6 +2130,8 @@ document.addEventListener('click',async e=>{
   if(d.editfood){openSheet({type:'editFood',food:foodById(d.editfood)});return}
   if(d.rmfood){const x=foodById(d.rmfood), rs=usedInRecipe(d.rmfood); dropRecord('foods',d.rmfood);
     toast(`Removed ${x?x.name:'food'}. Logged entries stay${rs.length?`; ${rs.map(r=>r.name).join(', ')} won’t include it`:''}.`); render(); return}
+  if(d.overlay){let o=overlayKeys(); if(o.includes(d.overlay)) o=o.filter(k=>k!==d.overlay); else {if(o.length>=OVERLAY_COLORS.length){toast(`Up to ${OVERLAY_COLORS.length} measurements at a time.`);return} o.push(d.overlay)}
+    state.settings.weightOverlay=o; touchSettings(); render(); return}
   if(d.rmmeasure){dropRecord('measurements',d.rmmeasure); toast('Measurements removed'); render(); return}
   if(d.lunit){state.settings.lengthUnit=d.lunit; touchSettings(); render(); return}
   if(d.rmweigh){dropRecord('weighins',d.rmweigh); toast('Weigh-in removed'); render(); return}
@@ -2024,9 +2156,9 @@ document.addEventListener('change',async e=>{
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
   if(t.id==='addMicro'&&t.value){readMicrosForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
     touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
-  if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); return}
-  if(t.dataset.site){const on=new Set(state.settings.measureSites||DEFAULT_SITES); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
-    state.settings.measureSites=SITES.map(x=>x[0]).filter(k=>on.has(k)); touchSettings(); render(); return}
+  if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); drawLeaders(); return}
+  if(t.dataset.site){const on=new Set(state.settings.measureSites||defaultSites()); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
+    state.settings.measureSites=SITES.map(x=>x[0]).filter(k=>on.has(k)); sitesOpen=true; touchSettings(); render(); return}
   // Switching units keeps the same amount of food: 100 g becomes 3.53 oz
   if(t.id==='pUnit'&&sheet&&sheet.type==='food'){
     const q=document.getElementById('pQty');
@@ -2059,6 +2191,7 @@ function render(){
   const m=document.getElementById('main');
   m.innerHTML=v(); m.classList.toggle('has-fab',tab==='today'&&!adder);
   if(tab==='trends') drawCharts();
+  if(tab==='body') drawLeaders();
   refreshAdder();
 }
 
