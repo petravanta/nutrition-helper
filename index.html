@@ -1208,10 +1208,26 @@ function openAdder(focus){
   if(!adder){adder=true; pushLayer('adder'); renderAdder(); render()}
   if(focus){const q=document.getElementById('foodQ'); if(q) q.focus()}
 }
+// While building a recipe, closing the overlay (×, back or Done) goes back to the recipe with its new foods
 function closeAdder(fromBack){
   if(!adder) return;
+  if(building) return finishBuilding(fromBack);
   adder=false; renderAdder(); render();
   if(!fromBack) dropLayer('adder');
+}
+// The recipe editor and the overlay take turns on one history entry, so switching doesn't step back and forth
+function startBuilding(){
+  syncDraft(); building=sheet.draft; search.q='';
+  stopScan(); sheet=null; renderSheet();
+  building.under=adder;   // opened over Add food: that stays under the recipe when it's done
+  if(adder){dropLayer('sheet'); renderAdder()} else {swapLayer('sheet','adder'); adder=true; renderAdder(); render()}
+  const q=document.getElementById('foodQ'); if(q) q.focus();
+}
+function finishBuilding(fromBack){
+  const {under,...dr}=building; building=null; search.q='';
+  if(under){if(fromBack) pushLayer('adder'); renderAdder(); pushLayer('sheet')}
+  else {adder=false; renderAdder(); render(); if(fromBack) pushLayer('sheet'); else swapLayer('adder','sheet')}
+  sheet={type:'editRecipe',draft:dr}; renderSheet();
 }
 // The day's report reads in time order, grouped by the parts of the day, or by one nutrient, biggest first.
 // The choice is kept on this phone; a nutrient that's no longer offered falls back to time.
@@ -2194,6 +2210,10 @@ function pushLayer(k){
   if(backsPending){pushesWaiting.push(k); return}   // pushing before a pending back lands would get undone by it
   history.pushState({nh:k},''); layers.push(k);
 }
+function swapLayer(from,to){
+  const i=pushesWaiting.lastIndexOf(from); if(i>=0){pushesWaiting[i]=to; return}
+  if(layers[layers.length-1]===from) layers[layers.length-1]=to; else pushLayer(to);
+}
 function dropLayer(k){
   const i=pushesWaiting.lastIndexOf(k); if(i>=0){pushesWaiting.splice(i,1); return}
   if(layers[layers.length-1]!==k) return;
@@ -2429,8 +2449,8 @@ document.addEventListener('click',async e=>{
     if(gap<2){toast('Every hour already starts a part.'); return}
     if(setDayParts([...h,(h[best]+Math.floor(gap/2))%24])) render(); return}
   if(d.act==='resetParts'){if(setDayParts([...DEFAULT_DAY_PARTS])) render(); return}
-  if(d.act==='recipeAddFoods'){syncDraft(); building=sheet.draft; closeSheet(); search.q=''; closeAdder(); openAdder(true); return}
-  if(d.act==='buildDone'){const dr=building; building=null; search.q=''; closeAdder(); openSheet({type:'editRecipe',draft:dr}); return}
+  if(d.act==='recipeAddFoods'){startBuilding(); return}
+  if(d.act==='buildDone'){closeAdder(); return}
   if(d.rmrecipe){const r=recipeById(d.rmrecipe); dropRecord('recipes',d.rmrecipe); toast(`Removed ${r?r.name:'recipe'}. Logged entries stay.`); if(sheet) closeSheet(); render(); return}
   if(d.editent){const x=state.entries.find(e=>e.id===d.editent), f=x&&x.foodId&&foodById(x.foodId);
     openSheet(f?{type:'food',food:f,entryId:x.id}:{type:'quick',entryId:d.editent}); return}
