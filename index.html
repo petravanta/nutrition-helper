@@ -198,6 +198,9 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .wrow:first-child{border-top:0}
 .wrow .d{font-size:13px;color:var(--muted)}
 .wrow .v{font-family:var(--f-mono)}
+.spark{vertical-align:middle;margin-right:4px;overflow:visible}
+.spark polyline{fill:none;stroke:var(--c-a);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+.spark circle{fill:var(--c-a)} .spark .base{stroke:var(--line);stroke-width:1}
 .tod{display:flex;gap:3px;align-items:flex-end}
 .tod span{display:flex;flex-direction:column;align-items:center;gap:2px;width:15px}
 .tod i{display:block;width:11px;border-radius:2px 2px 0 0;background:var(--c-a);min-height:1px}
@@ -699,11 +702,13 @@ function partName(h,i){
 const partOf=(hour,h)=>{let i=h.length-1; for(let j=0;j<h.length;j++) if(hour>=h[j]) i=j; return i};
 // How often each food and recipe has been logged, when last, and in which part of the day. Only logs made on the day
 // eaten tell the time; a recipe counts once per log, and each of its foods counts too. Imported daily totals don't count.
+const USAGE_WEEKS=12;   // weeks the Foods trendline covers, the latest ending today
 function usageStats(){
-  const h=dayParts(), st=new Map(), groups=new Set();
+  const h=dayParts(), st=new Map(), groups=new Set(), t0=parseDay(todayKey());
   const add=(key,e)=>{
-    let s=st.get(key); if(!s) st.set(key,s={n:0,last:'',parts:h.map(()=>0)});
+    let s=st.get(key); if(!s) st.set(key,s={n:0,last:'',parts:h.map(()=>0),weeks:Array(USAGE_WEEKS).fill(0)});
     s.n++; if(e.date>s.last) s.last=e.date;
+    const w=Math.floor(Math.round((t0-parseDay(e.date))/864e5)/7); if(w>=0&&w<USAGE_WEEKS) s.weeks[USAGE_WEEKS-1-w]++;
     const ts=e.ts&&new Date(e.ts);
     if(ts&&!isNaN(ts)&&dkey(ts)===e.date) s.parts[partOf(ts.getHours()+ts.getMinutes()/60,h)]++;
   };
@@ -718,6 +723,15 @@ function usageLine(s){
   if(!s) return 'Not logged yet';
   const ago=Math.round((parseDay(todayKey())-parseDay(s.last))/864e5);
   return `${s.n}× · last ${ago<2?dayLabel(s.last).toLowerCase():ago<14?ago+' days ago':esc(dayLabel(s.last))}`;
+}
+// Times logged per week over the last 12 weeks, oldest on the left
+function weeksSpark(s){
+  if(!s) return '';
+  const W=84, H=18, max=Math.max(1,...s.weeks), x=i=>(i*(W-4)/(USAGE_WEEKS-1)+2).toFixed(1), y=v=>(H-2-v*(H-4)/max).toFixed(1);
+  const pts=s.weeks.map((v,i)=>`${x(i)},${y(v)}`).join(' '), last=s.weeks[USAGE_WEEKS-1];
+  const label=`Times logged per week, last ${USAGE_WEEKS} weeks: ${s.weeks.join(', ')}`;
+  return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}"><title>${label}</title>
+    <line class="base" x1="2" x2="${W-2}" y1="${H-2}" y2="${H-2}"/><polyline points="${pts}"/><circle cx="${x(USAGE_WEEKS-1)}" cy="${y(last)}" r="2"/></svg>`;
 }
 // A small column per part of the day, scaled to its busiest part
 function partsChart(s){
@@ -1583,18 +1597,18 @@ function viewFoods(){
     <section class="panel stack"><div class="row" style="justify-content:space-between"><h3>Recipes</h3><button class="btn sm" data-act="newRecipe">Create a recipe</button></div>
       ${state.recipes.length?`<div class="rlist">${[...state.recipes].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<div class="ent">
         <div><button class="nm" data-editrecipe="${r.id}">${esc(r.name)}</button><div class="meta">Makes ${servingsText(r.servings||1)} · ${r.items.length} food${r.items.length===1?'':'s'} · ${recipeSummary(r)}</div>
-          <div class="meta">${usageLine(u('r:'+r.id))}</div></div>
+          <div class="meta">${weeksSpark(u('r:'+r.id))}${usageLine(u('r:'+r.id))}</div></div>
         ${partsChart(u('r:'+r.id))||'<span></span>'}
         <button class="btn sm ghost" data-pickrecipe="${r.id}">Log</button>
         <button class="x-btn" data-rmrecipe="${r.id}" aria-label="Remove ${esc(r.name)}">×</button></div>`).join('')}</div>`
       :`<p class="small muted">Group foods you often eat together, then log them in one go. Build one here, or log a meal and use <b>Save as recipe</b> on Today.</p>`}
     </section>
-    <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used. The columns show when you eat it, by the parts of the day in Settings.</p>
+    <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used. The line shows how many times you logged it each week over the last ${USAGE_WEEKS} weeks; the columns show when you eat it, by the parts of the day in Settings.</p>
     <div class="row"><span class="small">Sort</span><div class="seg" role="group" aria-label="Sort foods">${[['used','Most used'],['recent','Recent'],['name','Name']].map(([k,n])=>`<button data-foodsort="${k}" aria-pressed="${foodSort===k}">${n}</button>`).join('')}</div></div>
     <section class="panel">${list.length?list.map(f=>`<div class="ent">
         <div><button class="nm" data-editfood="${f.id}">${esc(f.name)}</button>${f.brand?` <span class="fb small muted">${esc(f.brand)}</span>`:''}
           <div class="meta">${per100Summary(f)}</div>
-          <div class="meta">${usageLine(u('f:'+f.id))} <span class="src-tag">${esc(SRC_NAME[f.source]||'')}${f.barcode?` · ${esc(f.barcode)}`:''}</span></div></div>
+          <div class="meta">${weeksSpark(u('f:'+f.id))}${usageLine(u('f:'+f.id))} <span class="src-tag">${esc(SRC_NAME[f.source]||'')}${f.barcode?` · ${esc(f.barcode)}`:''}</span></div></div>
         ${partsChart(u('f:'+f.id))||'<span></span>'}
         <button class="x-btn" data-rmfood="${f.id}" aria-label="Remove ${esc(f.name)}">×</button></div>`).join('')
       :`<p class="empty">No foods yet. Log something from Today, or create one here.</p>`}</section>
