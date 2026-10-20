@@ -256,6 +256,13 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .picks{display:flex;flex-direction:column;gap:2px}
 .mform label.field .was{font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint);font-family:var(--f-mono);min-height:1.3em}
 .mform label.field .was b{font-weight:600;color:var(--accent)}
+.wform label.field .was{font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint);font-family:var(--f-mono);min-height:1.3em}
+.wform label.field .was b{font-weight:600;color:var(--accent)}
+.wform{align-items:start}
+.wform>.row{align-self:center}
+.stepper{display:flex;gap:6px;align-items:center}
+.stepper input{flex:1 1 auto;width:auto;text-align:center}
+.stepper .btn{flex:none;width:38px;height:38px;padding:0;font-size:20px;line-height:1;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-user-select:none}
 .mtbl td,.mtbl th{text-align:right}.mtbl td:first-child,.mtbl th:first-child{text-align:left}
 .bodymap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,200px) minmax(0,1fr);gap:0 14px;align-items:start}
 .bm-col{display:flex;flex-direction:column;gap:8px;position:relative;z-index:1}
@@ -1423,14 +1430,54 @@ function runSearch(){
     .finally(()=>{if(seq===search.seq){search.busy[key]=false; refreshResults()}});
   go('off',offSearch); go('usda',fdcSearch);
 }
+// A weigh-in starts from the day's own reading, else the latest before it, so a tap or two on −/+ (or typing over
+// the selected value) is enough. Body fat carries from the last weigh-in that had one.
+function weighBase(d){
+  const before=weighinsSorted().filter(w=>w.date<d), on=weighinOn(d), fatW=before.find(w=>w.fat!=null);
+  return {on, prev:before[0], fatPrev:fatW};
+}
+function weighFields(d){
+  const {on,prev,fatPrev}=weighBase(d), wv=on?on.kg:prev&&prev.kg, fv=on?on.fat:fatPrev&&fatPrev.fat;
+  const was=(x,s)=>x?`last ${s} · ${shortDate(x.date)}`:'first weigh-in';
+  const step=(n,st)=>`<button type="button" class="btn sm" data-wstep="${n}" data-by="-${st}" aria-label="Less">−</button>`;
+  const stepUp=(n,st)=>`<button type="button" class="btn sm" data-wstep="${n}" data-by="${st}" aria-label="More">+</button>`;
+  return `<label class="field">Weight (${wUnit()})<span class="stepper">${step('weight',0.1)}<input type="number" name="weight" inputmode="decimal" step="0.1" min="0" required value="${wv!=null?fmtW(wv):''}" data-base="${prev?fmtW(prev.kg):''}">${stepUp('weight',0.1)}</span>
+      <span class="was" data-was="weight">${esc(prev?was(prev,fmtW(prev.kg)):'first weigh-in')}</span></label>
+    <label class="field">Body fat %<span class="stepper">${step('fat',0.1)}<input type="number" name="fat" inputmode="decimal" step="0.1" min="0" max="80" value="${fv!=null?(+fv).toFixed(1):''}" data-base="${fatPrev?(+fatPrev.fat).toFixed(1):''}">${stepUp('fat',0.1)}</span>
+      <span class="was" data-was="fat">${esc(fatPrev?was(fatPrev,(+fatPrev.fat).toFixed(1)+'%'):'')}</span></label>`;
+}
 function weighForm(d,id){
-  return `<form class="form" id="${id}" autocomplete="off">
-    <label class="field">Date<input type="date" name="date" value="${d}" required></label>
-    <label class="field">Weight (${wUnit()})<input type="number" name="weight" inputmode="decimal" step="0.1" min="0" required></label>
-    <label class="field">Body fat %<input type="number" name="fat" inputmode="decimal" step="0.1" min="0" max="80"></label>
-    <div class="row" style="align-self:end"><button class="btn primary" type="submit">Save weigh-in</button></div>
+  return `<form class="form wform" id="${id}" autocomplete="off">
+    <label class="field wide">Date<input type="date" name="date" data-wdate value="${d}" required></label>
+    <div class="wfields" style="display:contents">${weighFields(d)}</div>
+    <div class="row wide"><button class="btn primary" type="submit">Save weigh-in</button></div>
   </form>`;
 }
+// Show how far a weigh-in box has moved from the last reading
+function weighWas(t){
+  const was=t.form.querySelector(`[data-was="${t.name}"]`), base=num(t.dataset.base), x=num(t.value);
+  if(!was||base==null) return;
+  if(!was.dataset.orig) was.dataset.orig=was.textContent;
+  if(x==null||t.value===t.defaultValue&&Math.abs(x-base)<1e-9){was.textContent=x==null?'':was.dataset.orig; return}
+  const dl=x-base; was.innerHTML=`from ${esc(base.toFixed(1))} <b>${dl>0.0001?'+':dl<-0.0001?'−':'±'}${Math.abs(dl).toFixed(1)}</b>`;
+}
+function weighStep(b){
+  const el=b.closest('form').elements[b.dataset.wstep], by=+b.dataset.by;
+  const cur=num(el.value), base=cur!=null?cur:num(el.dataset.base);
+  el.value=Math.max(0,(base!=null?base:0)+by).toFixed(1); weighWas(el);
+}
+// −/+ step once on a tap and keep stepping while held
+let wHold=null, wHoldAt=0;
+const wStop=()=>{if(wHold){clearTimeout(wHold.t);clearInterval(wHold.i);wHold=null}};
+document.addEventListener('pointerdown',e=>{
+  const b=e.target.closest&&e.target.closest('[data-wstep]'); if(!b) return;
+  e.preventDefault(); wStop(); wHoldAt=Date.now(); weighStep(b);
+  wHold={t:setTimeout(()=>{wHold.i=setInterval(()=>weighStep(b),90)},450)};
+});
+['pointerup','pointercancel','pointerleave'].forEach(k=>document.addEventListener(k,wStop));
+document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-wstep]'); if(b&&Date.now()-wHoldAt>800) weighStep(b)});   // keyboard presses
+// Tapping a prefilled weigh-in box selects it, so typing replaces the old value
+document.addEventListener('focusin',e=>{const t=e.target; if(t.form&&t.form.classList.contains('wform')&&(t.name==='weight'||t.name==='fat')) setTimeout(()=>{try{t.select()}catch(_){}})});
 function viewWeight(){
   const ws=weighinsSorted(), last=ws[0], M=model();
   const wk=M.byDate[addDays(todayKey(),-7)], ch=M.trendNow!=null&&wk&&wk.trend!=null?M.trendNow-wk.trend:null;
@@ -2412,6 +2459,7 @@ document.addEventListener('submit',e=>{
 });
 document.addEventListener('input',e=>{
   const t=e.target;
+  if(t.form&&t.form.classList.contains('wform')&&(t.name==='weight'||t.name==='fat')){weighWas(t); return}
   if(t.name&&t.name.startsWith('m_')&&t.form&&t.form.id==='measureForm'){
     const was=t.form.querySelector(`[data-was="${t.name.slice(2)}"]`), base=num(t.dataset.base||t.defaultValue), x=num(t.value);
     if(!was) return;
@@ -2516,6 +2564,7 @@ document.addEventListener('change',async e=>{
   if(t.id==='foodSort'){foodSort=t.value; try{sessionStorage.setItem('nh.foodSort',foodSort)}catch(_){} render(); return}
   if(t.id==='addMicro'&&t.value){readTargetsForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
     touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
+  if(t.hasAttribute('data-wdate')&&t.value){t.form.querySelector('.wfields').innerHTML=weighFields(t.value); return}
   if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); drawLeaders(); return}
   if(t.dataset.site){const on=new Set(state.settings.measureSites||defaultSites()); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
     state.settings.measureSites=SITES.map(x=>x[0]).filter(k=>on.has(k)); sitesOpen=true; touchSettings(); render(); return}
