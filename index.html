@@ -206,6 +206,7 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .tod i{display:block;width:11px;border-radius:2px 2px 0 0;background:var(--c-a);min-height:1px}
 .tod i.z{background:var(--line)}
 .tod b{font:500 9px/1 var(--f-mono);color:var(--faint)}
+.tod b.on{color:var(--ink);font-weight:700}
 .rlist .ent{grid-template-columns:minmax(0,1fr) auto auto auto}
 .dpset{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
 .dpset:first-child{border-top:0}
@@ -734,12 +735,12 @@ function weeksSpark(s){
     <line class="base" x1="2" x2="${W-2}" y1="${H-2}" y2="${H-2}"/><polyline points="${pts}"/><circle cx="${x(USAGE_WEEKS-1)}" cy="${y(last)}" r="2"/></svg>`;
 }
 // A small column per part of the day, scaled to its busiest part
-function partsChart(s){
+function partsChart(s,hi=-1){
   if(!s) return '';
   const h=dayParts(), max=Math.max(...s.parts), tot=s.parts.reduce((a,b)=>a+b,0);
   const label=tot?h.map((_,i)=>`${partName(h,i)}: ${s.parts[i]}`).join(', '):'No time of day known';
   return `<div class="tod" role="img" aria-label="When it's eaten. ${label}" title="${label}">${h.map((x,i)=>
-    `<span><i class="${s.parts[i]?'':'z'}" style="height:${tot?Math.max(1,Math.round(22*s.parts[i]/max)):1}px"></i><b>${hourShort(x)}</b></span>`).join('')}</div>`;
+    `<span><i class="${s.parts[i]?'':'z'}" style="height:${tot?Math.max(1,Math.round(22*s.parts[i]/max)):1}px"></i><b${i===hi?' class="on"':''}>${hourShort(x)}</b></span>`).join('')}</div>`;
 }
 // A recipe: {id, name, servings (how many it makes), items:[{foodId, qty, unit}], lastServings, uses, lastUsed}.
 // It logs as its foods, scaled by the servings eaten, so every nutrient stays tracked per food.
@@ -1587,29 +1588,36 @@ function pacesHtml(targetDisp,current){
 }
 let foodSort=(()=>{try{return sessionStorage.getItem('nh.foodSort')||'used'}catch(_){return 'used'}})();
 function viewFoods(){
-  const st=usageStats(), u=k=>st.get(k), by={
-    name:(a,b)=>a.name.localeCompare(b.name),
-    used:(a,b)=>((u('f:'+b.id)||{}).n||0)-((u('f:'+a.id)||{}).n||0)||a.name.localeCompare(b.name),
-    recent:(a,b)=>((u('f:'+b.id)||{}).last||'').localeCompare((u('f:'+a.id)||{}).last||'')||a.name.localeCompare(b.name)};
-  const list=[...state.foods].sort(by[foodSort]||by.name);
+  // Sorting by a part of the day ranks by times eaten in it, then by the share of all logs it holds
+  const st=usageStats(), u=k=>st.get(k), h=dayParts(), pi=foodSort.startsWith('part:')?h.indexOf(+foodSort.slice(5)):-1;
+  const sorter=p=>{const s=x=>u(p+x.id)||{n:0,last:'',parts:[]}, name=(a,b)=>a.name.localeCompare(b.name), by={
+    name,
+    used:(a,b)=>s(b).n-s(a).n||name(a,b),
+    recent:(a,b)=>s(b).last.localeCompare(s(a).last)||name(a,b),
+    part:(a,b)=>(s(b).parts[pi]||0)-(s(a).parts[pi]||0)||(s(b).parts[pi]||0)/(s(b).n||1)-(s(a).parts[pi]||0)/(s(a).n||1)||s(b).n-s(a).n||name(a,b)};
+    return pi>=0?by.part:by[foodSort]||by.used};
+  const inPart=s=>pi>=0&&s&&s.parts[pi]?` · ${s.parts[pi]} in ${partName(h,pi)}`:'';
+  const list=[...state.foods].sort(sorter('f:'));
   return `<div class="stack">
     <div class="row" style="justify-content:space-between"><h2>My foods</h2><button class="btn sm primary" data-act="newFood">Create a food</button></div>
     <section class="panel stack"><div class="row" style="justify-content:space-between"><h3>Recipes</h3><button class="btn sm" data-act="newRecipe">Create a recipe</button></div>
-      ${state.recipes.length?`<div class="rlist">${[...state.recipes].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>`<div class="ent">
+      ${state.recipes.length?`<div class="rlist">${[...state.recipes].sort(sorter('r:')).map(r=>`<div class="ent">
         <div><button class="nm" data-editrecipe="${r.id}">${esc(r.name)}</button><div class="meta">Makes ${servingsText(r.servings||1)} · ${r.items.length} food${r.items.length===1?'':'s'} · ${recipeSummary(r)}</div>
-          <div class="meta">${weeksSpark(u('r:'+r.id))}${usageLine(u('r:'+r.id))}</div></div>
-        ${partsChart(u('r:'+r.id))||'<span></span>'}
+          <div class="meta">${weeksSpark(u('r:'+r.id))}${usageLine(u('r:'+r.id))}${inPart(u('r:'+r.id))}</div></div>
+        ${partsChart(u('r:'+r.id),pi)||'<span></span>'}
         <button class="btn sm ghost" data-pickrecipe="${r.id}">Log</button>
         <button class="x-btn" data-rmrecipe="${r.id}" aria-label="Remove ${esc(r.name)}">×</button></div>`).join('')}</div>`
       :`<p class="small muted">Group foods you often eat together, then log them in one go. Build one here, or log a meal and use <b>Save as recipe</b> on Today.</p>`}
     </section>
     <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used. The line shows how many times you logged it each week over the last ${USAGE_WEEKS} weeks; the columns show when you eat it, by the parts of the day in Settings.</p>
-    <div class="row"><span class="small">Sort</span><div class="seg" role="group" aria-label="Sort foods">${[['used','Most used'],['recent','Recent'],['name','Name']].map(([k,n])=>`<button data-foodsort="${k}" aria-pressed="${foodSort===k}">${n}</button>`).join('')}</div></div>
+    <label class="row"><span class="small">Sort</span><select id="foodSort" style="flex:1 1 200px">
+      ${[['used','Most used'],['recent','Most recent'],['name','Name']].map(([k,n])=>`<option value="${k}"${pi<0&&foodSort===k?' selected':''}>${n}</option>`).join('')}
+      <optgroup label="By part of the day">${h.map((x,i)=>`<option value="part:${x}"${i===pi?' selected':''}>Most eaten ${partName(h,i)}</option>`).join('')}</optgroup></select></label>
     <section class="panel">${list.length?list.map(f=>`<div class="ent">
         <div><button class="nm" data-editfood="${f.id}">${esc(f.name)}</button>${f.brand?` <span class="fb small muted">${esc(f.brand)}</span>`:''}
           <div class="meta">${per100Summary(f)}</div>
-          <div class="meta">${weeksSpark(u('f:'+f.id))}${usageLine(u('f:'+f.id))} <span class="src-tag">${esc(SRC_NAME[f.source]||'')}${f.barcode?` · ${esc(f.barcode)}`:''}</span></div></div>
-        ${partsChart(u('f:'+f.id))||'<span></span>'}
+          <div class="meta">${weeksSpark(u('f:'+f.id))}${usageLine(u('f:'+f.id))}${inPart(u('f:'+f.id))} <span class="src-tag">${esc(SRC_NAME[f.source]||'')}${f.barcode?` · ${esc(f.barcode)}`:''}</span></div></div>
+        ${partsChart(u('f:'+f.id),pi)||'<span></span>'}
         <button class="x-btn" data-rmfood="${f.id}" aria-label="Remove ${esc(f.name)}">×</button></div>`).join('')
       :`<p class="empty">No foods yet. Log something from Today, or create one here.</p>`}</section>
   </div>`;
@@ -2397,7 +2405,6 @@ document.addEventListener('click',async e=>{
   if(d.goto){tab=d.goto;render();window.scrollTo(0,0);return}
   if(d.act==='chooseMicros'){tab='settings';try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();const el=document.getElementById('microsPanel'); if(el) el.scrollIntoView(); return}
   if(d.rmpart){const h=readDayParts(); h.splice(+d.rmpart,1); if(setDayParts(h)) render(); return}
-  if(d.foodsort){foodSort=d.foodsort; try{sessionStorage.setItem('nh.foodSort',foodSort)}catch(_){} render(); return}
   if(d.unset){const el=document.querySelector(`#targetsForm [name="v:${d.unset}"]`); if(el) el.value=''; readTargetsForm(); touchSettings(); toast('Back to the usual target'); render(); return}
   if(d.rmmicro){readTargetsForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
   if(d.day){day=addDays(day,+d.day);render();return}
@@ -2467,6 +2474,7 @@ document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
   if(t.id==='listSort'){listSort=t.value; try{localStorage.setItem('nh.listSort',listSort)}catch(_){} render(); return}
+  if(t.id==='foodSort'){foodSort=t.value; try{sessionStorage.setItem('nh.foodSort',foodSort)}catch(_){} render(); return}
   if(t.id==='addMicro'&&t.value){readTargetsForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
     touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
   if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); drawLeaders(); return}
