@@ -225,11 +225,20 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .food .fn{font-weight:600;overflow-wrap:anywhere}
 .food .fb{font-size:12px;color:var(--muted)}
 .food .fk{font-family:var(--f-mono);font-size:13px;color:var(--muted);text-align:right;white-space:nowrap}
-/* suggestions carry a one-tap add for the usual portion; recipe logs group their foods */
-.sug{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;border-top:1px solid var(--line)}
-.rgroup .sug:first-of-type{border-top:0}
-.sug .food{border-top:0}
-.add-btn{white-space:nowrap}
+/* suggestions are tiles two to a row: the name opens the food to adjust, + adds the usual portion. Recent foods take one line each */
+.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.tile{display:flex;align-items:stretch;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.tile .tpick{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;text-align:left;background:none;border:0;padding:7px 4px 7px 10px;color:var(--ink)}
+.tile .tn{font-weight:600;font-size:14px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.tile .tq{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .tq b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
+.tile .tadd{flex:none;width:44px;border:0;border-left:1px solid var(--line);background:var(--sunk);color:var(--accent);font-size:22px;font-weight:600;line-height:1}
+.tile .tadd:active{background:var(--accent);color:var(--accent-ink)}
+.tile:hover .tn{color:var(--accent)}
+.food.slim{grid-template-columns:minmax(0,1fr) auto;padding:7px 2px}
+.food.slim .fn{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.food.slim .fq{font-size:12px;color:var(--muted);white-space:nowrap}
+.food.slim .fq b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
 .rgrp .ent.sub{padding-left:14px;border-top-style:dashed}
 /* the day's report, by part of the day or by a nutrient */
 .ent .kc small{display:block;text-align:right;font-size:11px;color:var(--faint)}
@@ -669,7 +678,7 @@ function usageScores(){
   return sc;
 }
 // The best few foods and recipes for right now, each with the portion a tap would add
-function suggestions(n=6){
+function suggestions(n=10){
   const sc=usageScores(), out=[];
   for(const [key,score] of sc){
     if(score<0.3) continue;
@@ -1346,13 +1355,23 @@ function recipeRow(r){
   return `<button class="food" data-pickrecipe="${r.id}"><span><span class="fn">${esc(r.name)}</span> <span class="src-tag">Recipe</span><br><span class="fb">${recipeSummary(r)}</span></span>
     <span class="fk">${fmt(recipeTotals(r,1).kcal)}<br><span class="src-tag">kcal/serving</span></span></button>`;
 }
-// A suggestion opens like any food, or adds its usual portion in one tap
-function suggestionRow(x){
+// "1 × 1 cup" reads as "1 cup" where space is short
+const portionText=(f,p)=>itemText(f,p).replace(/^1 × /,'');
+// A suggestion is a tile: tap the name to open it like any food, or + to add its usual portion
+function suggestionTile(x){
+  let pick,add,name,lbl,kcal;
   if(x.kind==='recipe'){const r=x.item, s=r.lastServings||1;
-    return `<div class="sug">${recipeRow(r)}<button class="btn sm add-btn" data-quickrecipe="${r.id}" aria-label="Add ${esc(servingsText(s))} of ${esc(r.name)}">+ ${esc(servingsText(s))}</button></div>`}
-  const f=x.item, p=defaultPortion(f), lbl=itemText(f,p);
-  return `<div class="sug">${foodRow(f,`data-pickfood="${f.id}"`)}<button class="btn sm add-btn" data-quickfood="${f.id}" aria-label="Add ${esc(lbl)} of ${esc(f.name)}">+ ${esc(lbl)}</button></div>`;
+    pick=`data-pickrecipe="${r.id}"`; add=`data-quickrecipe="${r.id}"`; name=r.name; lbl=servingsText(s); kcal=recipeTotals(r,s).kcal}
+  else{const f=x.item, p=defaultPortion(f);
+    pick=`data-pickfood="${f.id}"`; add=`data-quickfood="${f.id}"`; name=f.name; lbl=portionText(f,p); kcal=nutrientsFor(f,baseAmount(f,p.qty,p.unit)).kcal}
+  return `<div class="tile"><button class="tpick" ${pick}><span class="tn">${esc(name)}</span><span class="tq">${esc(lbl)} · <b>${fmt(kcal)}</b> kcal</span></button><button class="tadd" ${add} aria-label="Add ${esc(lbl)} of ${esc(name)}">+</button></div>`;
 }
+// One line per food or recipe in the shortlist, with the calories of the portion a tap would start from
+function slimRow(attr,name,tag,portion,kcal){
+  return `<button class="food slim" ${attr}><span class="fn">${esc(name)}${tag?` <span class="src-tag">${esc(tag)}</span>`:''}</span><span class="fq">${esc(portion)} · <b>${fmt(kcal)}</b> kcal</span></button>`;
+}
+const slimFood=f=>{const p=defaultPortion(f); return slimRow(`data-pickfood="${f.id}"`,f.name,!f.lastUsed&&f.seen?'Looked up':'',portionText(f,p),nutrientsFor(f,baseAmount(f,p.qty,p.unit)).kcal)};
+const slimRecipe=r=>slimRow(`data-pickrecipe="${r.id}"`,r.name,'','1 serving',recipeTotals(r,1).kcal);
 const matchesWords=(text,words)=>{const h=text.toLowerCase(); return words.every(w=>h.includes(w))};
 function localMatches(q){
   const words=q.toLowerCase().split(/\s+/).filter(Boolean), sc=usageScores();
@@ -1368,11 +1387,11 @@ function recipeMatches(q){
 function shortlistHtml(){
   const sug=building?[]:suggestions(), inSug=new Set(sug.map(x=>x.item.id));
   const recipes=building?[]:[...state.recipes].filter(r=>!inSug.has(r.id)).sort((a,b)=>(b.lastUsed||b.u||'').localeCompare(a.lastUsed||a.u||'')).slice(0,5);
-  const recent=state.foods.filter(f=>lastTouched(f)&&!inSug.has(f.id)).sort((a,b)=>lastTouched(b).localeCompare(lastTouched(a))).slice(0,10);
+  const recent=state.foods.filter(f=>lastTouched(f)&&!inSug.has(f.id)).sort((a,b)=>lastTouched(b).localeCompare(lastTouched(a))).slice(0,12);
   if(!sug.length&&!recipes.length&&!recent.length) return `<p class="note">Type a food to search your foods, Open Food Facts and USDA, or scan a barcode.</p>`;
-  return `${sug.length?`<div class="rgroup"><h4>Suggested for now</h4>${sug.map(suggestionRow).join('')}</div>`:''}
-    ${recipes.length?`<div class="rgroup"><h4>Recipes</h4>${recipes.map(recipeRow).join('')}</div>`:''}
-    ${recent.length?`<div class="rgroup"><h4>Recent</h4>${recent.map(f=>foodRow(f,`data-pickfood="${f.id}"`,!f.lastUsed&&f.seen?'Looked up':'')).join('')}</div>`:''}`;
+  return `${sug.length?`<div class="rgroup"><h4>Suggested for now</h4><div class="tiles">${sug.map(suggestionTile).join('')}</div></div>`:''}
+    ${recipes.length?`<div class="rgroup"><h4>Recipes</h4>${recipes.map(slimRecipe).join('')}</div>`:''}
+    ${recent.length?`<div class="rgroup"><h4>Recent</h4>${recent.map(slimFood).join('')}</div>`:''}`;
 }
 function resultsHtml(){
   const q=search.q.trim();
