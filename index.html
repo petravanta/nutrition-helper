@@ -297,6 +297,10 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 @media (max-width:400px){.preview{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .qty{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:10px}
 .qty input,.qty select{width:100%;font-size:18px}
+.defrow{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:center}
+.defrow span{font-size:14px;color:var(--muted)}
+.defrow input,.defrow select{width:100%;min-width:0}
+#pDef:empty{display:none}
 .scanbox{position:relative;background:#000;border-radius:var(--r);overflow:hidden;aspect-ratio:4/3}
 .scanbox video{width:100%;height:100%;object-fit:cover;display:block}
 .scanbox::after{content:"";position:absolute;left:12%;right:12%;top:38%;bottom:38%;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 999px rgba(0,0,0,.25)}
@@ -660,6 +664,56 @@ function defaultPortion(f){
   }
   if(!unit||!opts.includes(unit)){unit=opts[0]; qty=unitKind(unit)==='serving'?1:(UNITS[unit].kind==='mass'?(unit==='g'?100:unit==='oz'?4:1):(unit==='ml'?250:1))}
   return {unit,qty:+fmtQty(qty||1)};
+}
+// The portion sheet offers every unit for every food. A unit the food can't convert yet asks for what's missing,
+// the size of a serving or what a cup of it weighs (its density), and that is saved on the food once it's logged.
+const NEW_SRV='srv:new';
+function unitChoices(f){
+  const out=unitOptions(f), prefs=state.settings.unitPrefs;
+  for(const kind of ['mass','volume']){
+    if(kind===KIND_OF_BASE[f.base]||f.density) continue;
+    out.push(prefs[kind],...Object.keys(UNITS).filter(u=>UNITS[u].kind===kind&&u!==prefs[kind]));
+  }
+  out.push(NEW_SRV); return out;
+}
+const choiceLabel=(f,u)=>u===NEW_SRV?(f.servings&&f.servings.length?'other serving…':'serving'):unitLabel(f,u);
+const unitNeeds=(f,u)=>u===NEW_SRV?'serving':UNITS[u]&&UNITS[u].kind!==KIND_OF_BASE[f.base]&&!f.density?'density':'';
+// Fields for what a unit needs, seeded with the amount on screen so "150 g" turns into "1 serving = 150 g"
+function defHtml(f,unit,seed){
+  const need=unitNeeds(f,unit); if(!need) return '';
+  const sel=(list,cur)=>`<select id="dUnit" aria-label="Unit">${list.map(u=>`<option value="${u}"${u===cur?' selected':''}>${UNITS[u].n}</option>`).join('')}</select>`;
+  if(need==='density'){
+    const kind=KIND_OF_BASE[f.base], list=Object.keys(UNITS).filter(u=>UNITS[u].kind===kind);
+    return `<div class="defrow"><span>1 ${UNITS[unit].n} ${UNITS[unit].kind==='volume'?'weighs':'measures'}</span>
+      <input type="number" id="dAmt" inputmode="decimal" step="any" min="0" aria-label="Amount">${sel(list,state.settings.unitPrefs[kind])}</div>
+      <p class="small muted">Saved with the food, so every weight and volume works for it from now on.</p>`;
+  }
+  const list=unitOptions(f).filter(u=>UNITS[u]), cur=seed&&list.includes(seed.unit)?seed.unit:list[0];
+  return `<div class="defrow"><span>1 serving is</span>
+      <input type="number" id="dAmt" inputmode="decimal" step="any" min="0" value="${seed&&seed.qty>0?fmtQty(seed.qty):''}" aria-label="Serving size">${sel(list,cur)}</div>
+    <label class="field">Serving name<input type="text" id="dName" placeholder="e.g. 1 slice, 1 bowl"></label>`;
+}
+// The food and unit to log with, counting what the fields define; missing when they're still empty
+function withDef(f,unit){
+  const need=unitNeeds(f,unit); if(!need) return {f,unit};
+  const v=id=>{const el=document.getElementById(id); return el?el.value:''};
+  const a=num(v('dAmt')), u=v('dUnit'); if(!(a>0)||!UNITS[u]) return {f,unit,missing:need};
+  if(need==='serving'){
+    const serving={n:String(v('dName')).trim()||`serving (${fmtQty(a)} ${UNITS[u].n})`,amt:baseAmount(f,a,u),q:a,unit:u};
+    return {f:{...f,servings:[...(f.servings||[]),serving]},unit:'srv:'+(f.servings||[]).length,serving};
+  }
+  const density=f.base==='g'?a*UNITS[u].f/UNITS[unit].f:UNITS[unit].f/(a*UNITS[u].f);
+  return {f:{...f,density},unit,density};
+}
+// Save what withDef defined on the stored food, and give the unit to log in
+function commitDef(f,r){
+  if(r.serving){f.servings=[...(f.servings||[]),r.serving]; return 'srv:'+(f.servings.length-1)}
+  if(r.density) f.density=r.density;
+  return r.unit;
+}
+function refreshPortion(){
+  const q=document.getElementById('pQty').value, r=withDef(sheet.food,document.getElementById('pUnit').value), m=document.getElementById('pMore');
+  document.getElementById('pPreview').innerHTML=previewHtml(r.f,r.missing?0:q,r.unit); if(m) m.innerHTML=moreHtml(r.f,r.missing?0:q,r.unit);
 }
 const per100Summary=f=>`${fmt(f.per100.kcal)} kcal · P ${fmt(f.per100.protein,1)} · F ${fmt(f.per100.fat,1)} · C ${fmt(f.per100.carbs,1)} per 100 ${f.base}`;
 function servingSummary(f){
@@ -2125,14 +2179,15 @@ function sheetFood(){
     <form class="stack" id="portionForm" autocomplete="off">
       <div class="qty">
         <label class="field">Amount<input type="number" id="pQty" name="qty" inputmode="decimal" step="any" min="0" value="${p.qty}" required></label>
-        <label class="field">Unit<select id="pUnit" name="unit" data-prev="${esc(p.unit)}">${unitOptions(f).map(u=>`<option value="${esc(u)}"${u===p.unit?' selected':''}>${esc(unitLabel(f,u))}</option>`).join('')}</select></label>
+        <label class="field">Unit<select id="pUnit" name="unit" data-prev="${esc(p.unit)}">${unitChoices(f).map(u=>`<option value="${esc(u)}"${u===p.unit?' selected':''}>${esc(choiceLabel(f,u))}</option>`).join('')}</select></label>
       </div>
+      <div id="pDef" class="stack"></div>
       <div class="preview" id="pPreview">${previewHtml(f,p.qty,p.unit)}</div>
       ${Object.keys(f.per100).some(k=>!isMetric(k))?`<details class="allnut"><summary class="small muted">All nutrients</summary><div id="pMore">${moreHtml(f,p.qty,p.unit)}</div></details>`:''}
       <div class="row"><button class="btn primary big" type="submit">${e?'Save':building?'Add to recipe':'Add to '+(day===todayKey()?'today':esc(dayLabel(day)))}</button>
         ${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
     </form>
-    <p class="note">${per100Summary(f)}${f.servings&&f.servings.length?'':'. No serving sizes listed, so log it by weight or volume.'}</p>
+    <p class="note">${per100Summary(f)}${f.servings&&f.servings.length?'':'. No serving size listed yet: pick “serving” to set one.'}</p>
     <div class="row"><button class="btn sm ghost" data-act="editThisFood">Edit food</button></div>
     ${e?moveHtml(e):''}`;
 }
@@ -2235,6 +2290,7 @@ function sheetMove(){
 }
 function sheetEditFood(){
   const f=sheet.food||{}, s=(f.servings||[])[0], base=f.base||'g', amt=s?s.amt:100;
+  const su=s&&UNITS[s.unit]?s.unit:base, sq=s&&UNITS[s.unit]?s.q:amt;
   const n=f.per100?nutrientsFor(f,amt):{};
   return `<h2>${f.id?'Edit food':'Create a food'}</h2>
     <p class="small muted">Copy the nutrition from the label for one serving.</p>
@@ -2243,8 +2299,8 @@ function sheetEditFood(){
       <label class="field">Brand<input type="text" name="brand" value="${esc(f.brand||'')}"></label>
       <label class="field">Barcode<input type="text" name="barcode" inputmode="numeric" value="${esc(f.barcode||'')}"></label>
       <label class="field wide">Serving name<input type="text" name="sname" value="${esc(s?s.n:'')}" placeholder="e.g. 1 bar, 2 slices"></label>
-      <label class="field">Serving size<input type="number" name="samt" inputmode="decimal" step="any" min="0" value="${+fmtQty(amt)}" required></label>
-      <label class="field">Unit<select name="base"><option value="g"${base==='g'?' selected':''}>g</option><option value="ml"${base==='ml'?' selected':''}>ml</option></select></label>
+      <label class="field">Serving size<input type="number" name="samt" inputmode="decimal" step="any" min="0" value="${+fmtQty(sq)}" required></label>
+      <label class="field">Unit<select name="sunit">${Object.keys(UNITS).map(u=>`<option value="${u}"${u===su?' selected':''}>${UNITS[u].n}</option>`).join('')}</select></label>
       ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${n[m.k]!=null?+fmtQty(n[m.k]):''}"${m.k==='kcal'?' required':''}></label>`).join('')}
       ${extraMicros().map(x=>`<label class="field">${x.n} (${x.u})<input type="number" name="${x.k}" inputmode="decimal" step="any" min="0" value="${n[x.k]!=null?+fmtQty(sig3(n[x.k])):''}"></label>`).join('')}
       <div class="row full"><button class="btn primary" type="submit">Save food</button></div>
@@ -2398,10 +2454,12 @@ document.addEventListener('submit',e=>{
   if(id==='searchForm'){clearTimeout(search.timer); runSearch(); return}
   if(id==='moveForm'){const d=f.get('date'); if(!d){toast('Pick a date.');return} doMove(d,f.get('time')||null); return}
   if(id==='portionForm'){
-    const qty=num(f.get('qty')), unit=f.get('unit'); if(!qty||qty<=0){toast('Enter an amount.');return}
-    if(building&&!sheet.entryId){const food=keepFood(sheet.food); building.items.push({foodId:food.id,qty,unit});
+    const qty=num(f.get('qty')), r=withDef(sheet.food,f.get('unit')); if(!qty||qty<=0){toast('Enter an amount.');return}
+    if(r.missing){toast(r.missing==='serving'?'Enter how big one serving is.':`Enter what 1 ${UNITS[r.unit].n} ${UNITS[r.unit].kind==='volume'?'weighs':'measures'}.`); return}
+    const food=keepFood(sheet.food), unit=commitDef(food,r);
+    if(building&&!sheet.entryId){if(r.serving||r.density) putRecord('foods',food); building.items.push({foodId:food.id,qty,unit});
       toast(`Added ${food.name} to ${building.name||'the recipe'}`); closeSheet(); render(); return}
-    const rec=logPortion(sheet.food,qty,unit,sheet.entryId);
+    const rec=logPortion(food,qty,unit,sheet.entryId);
     toast(sheet.entryId?'Entry updated':`Added ${rec.name}`); closeSheet(); render(); return}
   if(id==='recipeLogForm'){
     const s=num(f.get('qty')); if(!s||s<=0){toast('Enter how many servings.');return}
@@ -2426,15 +2484,17 @@ document.addEventListener('submit',e=>{
     if(!METRICS.some(m=>rec[m.k])&&!Object.keys(rec.more).length){toast('Enter some nutrition.');return}
     putRecord('entries',rec); toast(old?'Entry updated':`Added ${rec.name}`); closeSheet(); render(); return}
   if(id==='foodForm'){
-    const name=String(f.get('name')||'').trim(), samt=num(f.get('samt')), base=f.get('base')==='ml'?'ml':'g';
-    if(!name||!samt||samt<=0){toast('Enter a name and serving size.');return}
+    const name=String(f.get('name')||'').trim(), sq=num(f.get('samt')), su=UNITS[f.get('sunit')]?f.get('sunit'):'g';
+    if(!name||!sq||sq<=0){toast('Enter a name and serving size.');return}
     const old=sheet.food&&sheet.food.id?foodById(sheet.food.id):null;
+    // Nutrition stays per 100 g or ml: the food keeps its base when its density converts the serving's unit
+    const kind=UNITS[su].kind, base=old&&old.density&&old.base?old.base:kind==='mass'?'g':'ml', samt=old&&old.density?baseAmount({...old,base},sq,su):sq*UNITS[su].f;
     const per100={...(old&&old.per100||{})}; METRICS.forEach(m=>per100[m.k]=(num(f.get(m.k))||0)*100/samt);
     extraMicros().forEach(x=>{const v=num(f.get(x.k)); if(v!=null&&v>=0) per100[x.k]=v*100/samt; else delete per100[x.k]});
-    const sname=String(f.get('sname')||'').trim()||`${fmtQty(samt)} ${base}`;
+    const sname=String(f.get('sname')||'').trim()||`${fmtQty(sq)} ${UNITS[su].n}`;
     const rest=old&&old.servings?old.servings.slice(1):[];
     const rec={...(old||{}),id:old?old.id:'f'+uid6(),name,brand:String(f.get('brand')||'').trim(),barcode:String(f.get('barcode')||'').replace(/\D/g,''),
-      source:'custom',base,per100,servings:[{n:sname,amt:samt},...rest],uses:old?old.uses||0:0};
+      source:'custom',base,per100,servings:[{n:sname,amt:samt,q:sq,unit:su},...rest],uses:old?old.uses||0:0};
     if(rec.lastUnit&&!unitOptions(rec).includes(rec.lastUnit)){delete rec.lastUnit; delete rec.lastQty; delete rec.lastAmt}
     putRecord('foods',rec);
     toast(old?'Food saved':`Created ${name}`);
@@ -2470,8 +2530,7 @@ document.addEventListener('input',e=>{
   if(t.id==='gTarget'&&sheet&&sheet.type==='goal'){const cur=document.querySelector('#gPaces input:checked'); document.getElementById('gPaces').innerHTML=pacesHtml(num(t.value),cur?num(cur.value):null); return}
   if(t.id==='rQty'&&sheet&&sheet.type==='recipe'){document.getElementById('rPreview').innerHTML=recipePreviewHtml(sheet.recipe,t.value); document.getElementById('rItems').innerHTML=recipeItemsHtml(sheet.recipe,t.value); return}
   if(t.closest&&t.closest('#recipeForm')&&sheet&&sheet.draft){syncDraft(); const el=document.getElementById('rSummary'); if(el) el.textContent=sheet.draft.items.length?recipeSummary(sheet.draft):''; return}
-  if(t.id==='pQty'&&sheet&&sheet.type==='food'){const u=document.getElementById('pUnit').value, m=document.getElementById('pMore');
-    document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,t.value,u); if(m) m.innerHTML=moreHtml(sheet.food,t.value,u)}
+  if((t.id==='pQty'||t.closest&&t.closest('#pDef'))&&sheet&&sheet.type==='food'){refreshPortion(); return}
 });
 // Google tokens last an hour. Renew on a tap when it's close to running out: a token request needs a tap,
 // and for an account that already agreed Google's window closes by itself.
@@ -2569,13 +2628,17 @@ document.addEventListener('change',async e=>{
   if(t.dataset.site){const on=new Set(state.settings.measureSites||defaultSites()); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
     state.settings.measureSites=SITES.map(x=>x[0]).filter(k=>on.has(k)); sitesOpen=true; touchSettings(); render(); return}
   // Switching units keeps the same amount of food: 100 g becomes 3.53 oz
+  // A unit that needs a serving size or density asks for it, starting from the amount that was showing
   if(t.id==='pUnit'&&sheet&&sheet.type==='food'){
-    const q=document.getElementById('pQty');
-    const amt=baseAmount(sheet.food,num(q.value)||0,t.dataset.prev), one=baseAmount(sheet.food,1,t.value);
-    if(amt>0&&one>0) q.value=fmtQty(amt/one);
-    t.dataset.prev=t.value;
-    document.getElementById('pPreview').innerHTML=previewHtml(sheet.food,q.value,t.value);
-    const m=document.getElementById('pMore'); if(m) m.innerHTML=moreHtml(sheet.food,q.value,t.value); return}
+    const q=document.getElementById('pQty'), food=sheet.food, was=withDef(food,t.dataset.prev), qty=num(q.value)||0;
+    const amt=was.missing?0:baseAmount(was.f,qty,was.unit), need=unitNeeds(food,t.value);
+    let seed=null;
+    if(need==='serving'&&amt>0){const prev=UNITS[was.unit]&&unitOptions(food).includes(was.unit)?was.unit:null;
+      seed=prev?{qty,unit:prev}:{qty:amt,unit:food.base}; q.value='1'}
+    else if(!need){const one=baseAmount(food,1,t.value); if(amt>0&&one>0) q.value=fmtQty(amt/one)}
+    document.getElementById('pDef').innerHTML=defHtml(food,t.value,seed);
+    t.dataset.prev=t.value; refreshPortion();
+    const d=document.getElementById('dAmt'); if(d&&!d.value) d.focus(); return}
   // Same for a food's unit in the recipe editor
   if(/^u\d+$/.test(t.name||'')&&t.closest('#recipeForm')&&sheet&&sheet.draft){
     const it=sheet.draft.items[+t.name.slice(1)], f=it&&foodById(it.foodId), q=t.form.elements['q'+t.name.slice(1)];
