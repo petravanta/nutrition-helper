@@ -130,9 +130,23 @@ body.adding{overflow:hidden}
 .adder .atitle{display:flex;align-items:center;gap:10px}
 .adder .atitle h2{margin:0;margin-right:auto}
 .adder .x{background:var(--sunk);border:0;border-radius:999px;width:36px;height:36px;font-size:20px;line-height:1;flex:none}
-.adder .left{font-size:13px;color:var(--muted)}
-.adder .left b{color:var(--ink);font-family:var(--f-mono);font-weight:500}
-.adder .left .over{color:var(--over)}
+.tots{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:4px 10px}
+.tots .tc{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tots .tl{display:flex;gap:4px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:600;white-space:nowrap}
+.tots .tl b{font-weight:inherit;overflow:hidden;text-overflow:ellipsis}
+.tots .tl em{margin-left:auto;font-style:normal;color:var(--accent);font-family:var(--f-mono);letter-spacing:0}
+.tots .tv{font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tots .tv small{color:var(--muted);font-size:11px}
+.tots .meter{height:4px;display:flex}
+.tots .meter i{border-radius:0}
+.tots .meter i.add{opacity:.45}
+.tots .over .tv{color:var(--over)}.tots .over .meter i{background:var(--over)}
+.tots .done .meter i{background:var(--ok)}
+.daytot{background:var(--sunk);border-radius:8px;padding:8px 10px}
+.daytot>span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.when{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.when .nav-btn{width:28px;height:30px;font-size:16px;flex:none}
+.when .btn.sm{padding:5px 10px}
 .adder .abody{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 24px);display:flex;flex-direction:column;gap:14px}
 @media (max-width:640px){
   .adder{inset:0;transform:none;width:auto;height:auto;border:0;border-radius:0}
@@ -141,6 +155,7 @@ body.adding{overflow:hidden}
 }
 @media (prefers-reduced-motion:no-preference){.adder{animation:rise .16s ease-out}@keyframes rise{from{opacity:.3;margin-top:16px}}}
 input[type=date],input[type=time],input[type=search]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:15px;font-weight:500;min-width:0}
+.when input[type=date],.when input[type=time]{padding:5px 6px;font-size:14px}.when input[type=date]{width:8.7em}.when input[type=time]{width:7.9em}
 .daybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .daybar h2{margin-right:auto}
 .nav-btn{width:34px;height:34px;padding:0;display:inline-grid;place-items:center;font-size:18px;line-height:1}
@@ -713,7 +728,8 @@ function commitDef(f,r){
 }
 function refreshPortion(){
   const q=document.getElementById('pQty').value, r=withDef(sheet.food,document.getElementById('pUnit').value), m=document.getElementById('pMore');
-  document.getElementById('pPreview').innerHTML=previewHtml(r.f,r.missing?0:q,r.unit); if(m) m.innerHTML=moreHtml(r.f,r.missing?0:q,r.unit);
+  document.getElementById('pPreview').innerHTML=previewHtml(r.f,r.missing?0:q,r.unit);
+  const dt=document.getElementById('pDay'); if(dt) dt.innerHTML=dayWithHtml(r.missing?{}:nutrientsFor(r.f,baseAmount(r.f,num(q)||0,r.unit))); if(m) m.innerHTML=moreHtml(r.f,r.missing?0:q,r.unit);
 }
 const per100Summary=f=>`${fmt(f.per100.kcal)} kcal · P ${fmt(f.per100.protein,1)} · F ${fmt(f.per100.fat,1)} · C ${fmt(f.per100.carbs,1)} per 100 ${f.base}`;
 function servingSummary(f){
@@ -825,9 +841,9 @@ const recipeSummary=r=>{const n=recipeTotals(r,1); return `1 serving: ${fmt(n.kc
 const servingsText=s=>`${fmtQty(s)} serving${s===1?'':'s'}`;
 const itemText=(f,it,factor=1)=>{const q=it.qty*factor; return unitKind(it.unit)==='serving'?`${fmtQty(q)} × ${unitLabel(f,it.unit)}`:`${fmtQty(q)} ${unitLabel(f,it.unit)}`};
 function logRecipe(r,servings){
-  const factor=servings/(r.servings||1), group='g'+uid6(), t0=Date.now(); let n=0;
+  const factor=servings/(r.servings||1), group='g'+uid6(); let n=0;
   r.items.forEach((it,i)=>{const f=foodById(it.foodId); if(!f) return;
-    logPortion(f,it.qty*factor,it.unit,null,{recipe:{id:r.id,name:r.name,group,servings},ts:new Date(t0+i).toISOString()}); n++});
+    logPortion(f,it.qty*factor,it.unit,null,{recipe:{id:r.id,name:r.name,group,servings},ts:logTs(i)}); n++});
   Object.assign(r,{lastServings:servings,lastUsed:nowIso(),uses:(r.uses||0)+1}); putRecord('recipes',r);
   return n;
 }
@@ -1218,7 +1234,7 @@ function viewToday(){
     <section class="panel stack">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
         <div class="row">${list.length?sortPicker():''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
-      ${list.length?`<div class="entries">${entriesHtml(list)}</div>`
+      ${list.length?`<div class="entries">${entriesHtml(list)}</div><p class="small muted">Tap a food to change its amount or move it to another day or time.</p>`
         :`<p class="empty">Nothing logged yet.<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button></p>`}
     </section>
     <section class="panel stack">
@@ -1232,14 +1248,38 @@ function viewToday(){
 /* ---------------- Add food overlay ---------------- */
 // Search, suggestions, scanning and recipes, kept apart from the day's report. Logging leaves it open for the next food.
 let adder=false;
-function adderLeftHtml(){
-  const t=targetsFor(day), tot=totalsFor(day);
-  return METRICS.filter(m=>m.k==='kcal'||m.k==='protein').map(m=>{
-    const left=t[m.k]-tot[m.k];
-    if(macroKind(m)==='floor') return left<=0?`${m.n} reached`:`<b>${fmt(left)}</b> ${m.u} ${m.n.toLowerCase()} to go`;
-    return left<0?`<span class="over"><b>${fmt(-left)}</b> ${m.u} over</span>`:`<b>${fmt(left)}</b> ${m.u} left`;
-  }).join(' · ');
+// The day so far, compactly: the macros and the micros picked for Today, eaten against their targets.
+// With add (a portion's nutrients), each shows what the day comes to with it, the extra as a paler end of the meter.
+function totalsStrip(add){
+  const t=targetsFor(day), n=dayNutrients(day), a=add||{};
+  const cells=[...MACROS.map(m=>({k:m.k,n:m.k==='kcal'?'Cal':m.n,u:m.u==='kcal'?'':m.u,lim:t[m.k],kind:macroKind(m),f:fmt})),
+    ...state.settings.micros.filter(c=>NUT[c.k]).map(c=>({k:c.k,n:NUT[c.k].n,u:NUT[c.k].u,lim:microLimit(c),kind:c.kind,f:fmtNut}))];
+  return `<div class="tots">${cells.map(c=>{
+    const was=n[c.k]||0, plus=a[c.k]||0, now=was+plus, b=c.lim?budgetState(c.kind,now,c.lim,c.u,c.f):null;
+    const w=x=>c.lim>0?Math.min(100,x/c.lim*100):0;
+    return `<div class="tc ${b?b.cls:''}" title="${esc(NUT[c.k]?NUT[c.k].n:c.n)}: ${c.f(now)}${c.lim?' of '+c.f(c.lim):''} ${esc(c.u||'kcal')}">
+      <span class="tl"><b>${esc(c.n)}</b>${plus>=0.5||plus>0&&c.f===fmtNut?`<em>+${c.f(plus)}</em>`:''}</span>
+      <span class="tv">${c.f(now)}<small>${c.lim?'/'+c.f(c.lim):' '+esc(c.u)}</small></span>
+      ${c.lim?`<div class="meter"><i style="width:${w(was)}%"></i>${plus>0?`<i class="add" style="width:${Math.max(0,w(now)-w(was))}%"></i>`:''}</div>`:''}</div>`}).join('')}</div>`;
 }
+// In a food's sheet: the day as it would be with this portion
+const dayWithHtml=add=>`<span>${esc(day===todayKey()?'Today':dayLabel(day))} with this</span>${totalsStrip(add)}`;
+// When new foods are logged: the day being added to, and a time (blank means now, or not known on another day)
+let addTime=null;
+const nowHm=()=>{const d=new Date(); return pad(d.getHours())+':'+pad(d.getMinutes())};
+function logTs(i=0){
+  if(!addTime) return new Date(Date.now()+i).toISOString();
+  const [h,m]=addTime.split(':').map(Number), d=parseDay(day); d.setHours(h,m,0,i); return d.toISOString();
+}
+function adderWhenHtml(){
+  const td=day===todayKey();
+  return `<button class="btn nav-btn" type="button" data-addday="-1" aria-label="Day before">‹</button>
+    <input type="date" id="addDay" value="${day}" aria-label="Day to log new foods to">
+    <button class="btn nav-btn" type="button" data-addday="1" aria-label="Day after">›</button>
+    <input type="time" id="addTime" value="${addTime||(td?nowHm():'')}" aria-label="Time eaten">
+    ${addTime||!td?'<button class="btn nav-btn" type="button" data-act="addNow" aria-label="Back to now" title="Back to now">↺</button>':''}`;
+}
+const adderTitle=()=>building?'Add to recipe':day===todayKey()?'Add food':'Add to '+esc(dayLabel(day));
 function adderModeHtml(){
   return building?`<div class="banner"><p>Adding foods to <b>${esc(building.name||'a new recipe')}</b> (${building.items.length} so far). Pick a food and its amount.</p>
       <button class="btn sm primary" data-act="buildDone">Done</button></div>`
@@ -1252,9 +1292,10 @@ function renderAdder(){
   h.innerHTML=`<div class="scrim adder-scrim" data-closeadder="1"></div>
   <div class="adder" role="dialog" aria-modal="true" aria-labelledby="adderTitle">
     <div class="ahead">
-      <div class="atitle"><h2 id="adderTitle">${building?'Add to recipe':day===todayKey()?'Add food':'Add to '+esc(dayLabel(day))}</h2>
+      <div class="atitle"><h2 id="adderTitle">${adderTitle()}</h2>
         <button class="x" data-closeadder="1" aria-label="Close">×</button></div>
-      <p class="left" id="adderLeft">${building?'':adderLeftHtml()}</p>
+      <div id="adderTots">${building?'':totalsStrip()}</div>
+      <div class="when" id="adderWhen"${building?' hidden':''}>${adderWhenHtml()}</div>
       <form class="searchbar" id="searchForm" role="search" autocomplete="off">
         <input type="search" id="foodQ" placeholder="Search foods, e.g. greek yogurt" value="${esc(search.q)}" aria-label="Search foods" enterkeyhint="search">
         <button class="btn primary" type="button" data-act="scan">Scan barcode</button>
@@ -1269,10 +1310,16 @@ function renderAdder(){
 // After something is logged: new totals and suggestions, without disturbing the search box
 function refreshAdder(){
   if(!adder) return;
-  const l=document.getElementById('adderLeft'), m=document.getElementById('adderMode');
-  if(l) l.innerHTML=building?'':adderLeftHtml();
+  const l=document.getElementById('adderTots'), m=document.getElementById('adderMode');
+  if(l) l.innerHTML=building?'':totalsStrip();
   if(m) m.innerHTML=adderModeHtml();
   refreshResults();
+}
+// The overlay's day or time changed: its title, totals and day controls follow, and Today behind it
+function adderWhenChanged(){
+  const h=document.getElementById('adderTitle'), w=document.getElementById('adderWhen');
+  if(h) h.innerHTML=adderTitle(); if(w) w.innerHTML=adderWhenHtml();
+  refreshAdder(); render();
 }
 function openAdder(focus){
   if(!adder){adder=true; pushLayer('adder'); renderAdder(); render()}
@@ -1282,7 +1329,7 @@ function openAdder(focus){
 function closeAdder(fromBack){
   if(!adder) return;
   if(building) return finishBuilding(fromBack);
-  adder=false; renderAdder(); render();
+  adder=false; addTime=null; renderAdder(); render();
   if(!fromBack) dropLayer('adder');
 }
 // The recipe editor and the overlay take turns on one history entry, so switching doesn't step back and forth
@@ -2183,13 +2230,14 @@ function sheetFood(){
       </div>
       <div id="pDef" class="stack"></div>
       <div class="preview" id="pPreview">${previewHtml(f,p.qty,p.unit)}</div>
+      ${e||building?'':`<div class="daytot" id="pDay">${dayWithHtml(nutrientsFor(f,baseAmount(f,num(p.qty)||0,p.unit)))}</div>`}
       ${Object.keys(f.per100).some(k=>!isMetric(k))?`<details class="allnut"><summary class="small muted">All nutrients</summary><div id="pMore">${moreHtml(f,p.qty,p.unit)}</div></details>`:''}
-      <div class="row"><button class="btn primary big" type="submit">${e?'Save':building?'Add to recipe':'Add to '+(day===todayKey()?'today':esc(dayLabel(day)))}</button>
+      <div class="row"><button class="btn primary big" type="submit">${e?'Save':building?'Add to recipe':addToDay()}</button>
         ${e?`<button class="btn ghost danger" type="button" data-rment="${e.id}">Remove</button>`:''}</div>
     </form>
+    ${e?moveHtml(e):''}
     <p class="note">${per100Summary(f)}${f.servings&&f.servings.length?'':'. No serving size listed yet: pick “serving” to set one.'}</p>
-    <div class="row"><button class="btn sm ghost" data-act="editThisFood">Edit food</button></div>
-    ${e?moveHtml(e):''}`;
+    <div class="row"><button class="btn sm ghost" data-act="editThisFood">Edit food</button></div>`;
 }
 function previewHtml(f,qty,unit){
   const n=nutrientsFor(f,baseAmount(f,num(qty)||0,unit));
@@ -2205,7 +2253,7 @@ function moreHtml(f,qty,unit){
   return order.filter(g=>groups[g]).map(g=>`<h3>${g}</h3><table>${groups[g].sort((a,b)=>rank(a)-rank(b)||nutName(a,f.nmeta).localeCompare(nutName(b,f.nmeta)))
     .map(k=>`<tr><td>${esc(nutName(k,f.nmeta))}</td><td>${val(n[k],nutUnit(k,f.nmeta))}</td></tr>`).join('')}</table>`).join('');
 }
-const addToDay=()=>'Add to '+(day===todayKey()?'today':esc(dayLabel(day)));
+const addToDay=()=>'Add to '+(day===todayKey()?'today':esc(dayLabel(day)))+(addTime?' at '+esc(clock(new Date(logTs()))):'');
 function sheetRecipe(){
   const r=sheet.recipe, s=r.lastServings||1, missing=r.items.filter(i=>!foodById(i.foodId)).length;
   return `<h2>${esc(r.name)}</h2>
@@ -2213,11 +2261,18 @@ function sheetRecipe(){
     <form class="stack" id="recipeLogForm" autocomplete="off">
       <label class="field">Servings<input type="number" id="rQty" name="qty" inputmode="decimal" step="any" min="0" value="${fmtQty(s)}" required></label>
       <div class="preview" id="rPreview">${recipePreviewHtml(r,s)}</div>
+      <div class="daytot" id="rDay">${dayWithHtml(recipeNutrients(r,s))}</div>
       <div id="rItems">${recipeItemsHtml(r,s)}</div>
       ${missing?`<p class="note">${missing} of its foods ${missing===1?'was':'were'} removed from My foods and won’t be logged.</p>`:''}
       <div class="row"><button class="btn primary big" type="submit">${addToDay()}</button></div>
     </form>
     <div class="row"><button class="btn sm ghost" data-editrecipe="${r.id}">Edit recipe</button></div>`;
+}
+// Every nutrient in this many servings, for the day's totals
+function recipeNutrients(r,s){
+  const factor=(num(s)||0)/(r.servings||1), t={};
+  for(const it of r.items){const f=foodById(it.foodId); if(!f) continue; const n=nutrientsFor(f,baseAmount(f,it.qty*factor,it.unit)); for(const k in n) t[k]=(t[k]||0)+n[k]}
+  return t;
 }
 function recipePreviewHtml(r,s){const n=recipeTotals(r,num(s)||0); return METRICS.map(m=>`<div><b>${fmt(n[m.k])}</b><span>${m.s}${m.u==='mg'?' mg':m.u==='g'?' g':''}</span></div>`).join('')}
 function recipeItemsHtml(r,s){
@@ -2415,7 +2470,7 @@ function keepFood(f){
 function logPortion(f,qty,unit,entryId,opt={}){
   f=keepFood(f);
   const amt=baseAmount(f,qty,unit), n=nutrientsFor(f,amt), old=entryId&&state.entries.find(x=>x.id===entryId), recipe=opt.recipe||old&&old.recipe;
-  const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:opt.ts||nowIso(),foodId:f.id,name:f.name+(f.brand?` (${f.brand})`:''),
+  const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:opt.ts||logTs(),foodId:f.id,name:f.name+(f.brand?` (${f.brand})`:''),
     qty,unit,unitLabel:unitLabel(f,unit),amt,...Object.fromEntries(METRICS.map(m=>[m.k,n[m.k]])),more:moreOf(n),...(recipe?{recipe}:{})};
   putRecord('entries',rec);
   if(recipe) return rec;
@@ -2478,7 +2533,7 @@ document.addEventListener('submit',e=>{
     putRecord('recipes',{id:'r'+uid6(),name,servings,items,uses:0}); toast(`Saved ${name}. Find it before you search, or under Foods.`); closeSheet(); render(); return}
   if(id==='quickAdd'){
     const old=sheet&&sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
-    const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:nowIso(),name:String(f.get('name')||'').trim()||'Quick add'};
+    const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:logTs(),name:String(f.get('name')||'').trim()||'Quick add'};
     METRICS.forEach(m=>rec[m.k]=num(f.get(m.k))||0);
     rec.more={...(old&&old.more||{})}; extraMicros().forEach(x=>{const v=num(f.get(x.k)); if(v>0) rec.more[x.k]=v; else delete rec.more[x.k]});
     if(!METRICS.some(m=>rec[m.k])&&!Object.keys(rec.more).length){toast('Enter some nutrition.');return}
@@ -2528,7 +2583,8 @@ document.addEventListener('input',e=>{
     return}
   if(t.id==='foodQ'){search.q=t.value; clearTimeout(search.timer); search.seq++; search.off=search.usda=null; search.err={}; search.busy={off:false,usda:false}; refreshResults(); search.timer=setTimeout(runSearch,650); return}
   if(t.id==='gTarget'&&sheet&&sheet.type==='goal'){const cur=document.querySelector('#gPaces input:checked'); document.getElementById('gPaces').innerHTML=pacesHtml(num(t.value),cur?num(cur.value):null); return}
-  if(t.id==='rQty'&&sheet&&sheet.type==='recipe'){document.getElementById('rPreview').innerHTML=recipePreviewHtml(sheet.recipe,t.value); document.getElementById('rItems').innerHTML=recipeItemsHtml(sheet.recipe,t.value); return}
+  if(t.id==='rQty'&&sheet&&sheet.type==='recipe'){document.getElementById('rPreview').innerHTML=recipePreviewHtml(sheet.recipe,t.value); document.getElementById('rItems').innerHTML=recipeItemsHtml(sheet.recipe,t.value);
+    document.getElementById('rDay').innerHTML=dayWithHtml(recipeNutrients(sheet.recipe,t.value)); return}
   if(t.closest&&t.closest('#recipeForm')&&sheet&&sheet.draft){syncDraft(); const el=document.getElementById('rSummary'); if(el) el.textContent=sheet.draft.items.length?recipeSummary(sheet.draft):''; return}
   if((t.id==='pQty'||t.closest&&t.closest('#pDef'))&&sheet&&sheet.type==='food'){refreshPortion(); return}
 });
@@ -2555,6 +2611,8 @@ document.addEventListener('click',async e=>{
   if(d.rmmicro){readTargetsForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
   if(d.day){day=addDays(day,+d.day);render();return}
   if(d.act==='goToday'){day=todayKey();render();return}
+  if(d.addday){day=addDays(day,+d.addday); adderWhenChanged(); return}
+  if(d.act==='addNow'){day=todayKey(); addTime=null; adderWhenChanged(); return}
   if(d.pickfood){openSheet({type:'food',food:foodById(d.pickfood)});return}
   if(d.pickext){const [k,i]=d.pickext.split(':'), f=(search[k]||[])[+i]; if(f){openSheet({type:'food',food:rememberLookup(f)}); refreshResults()} return}
   if(d.pickrecipe){const r=recipeById(d.pickrecipe); if(r) openSheet({type:'recipe',recipe:r}); return}
@@ -2619,6 +2677,8 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape') return; if(sheet) c
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
+  if(t.id==='addDay'&&t.value){day=t.value; adderWhenChanged(); return}
+  if(t.id==='addTime'){addTime=t.value||null; const w=document.getElementById('adderWhen'); if(w&&!w.querySelector('[data-act="addNow"]')&&addTime) w.insertAdjacentHTML('beforeend','<button class="btn nav-btn" type="button" data-act="addNow" aria-label="Back to now" title="Back to now">↺</button>'); return}
   if(t.id==='listSort'){listSort=t.value; try{localStorage.setItem('nh.listSort',listSort)}catch(_){} render(); return}
   if(t.id==='foodSort'){foodSort=t.value; try{sessionStorage.setItem('nh.foodSort',foodSort)}catch(_){} render(); return}
   if(t.id==='addMicro'&&t.value){readTargetsForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
