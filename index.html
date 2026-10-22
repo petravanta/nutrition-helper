@@ -245,6 +245,7 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .tile{display:flex;align-items:stretch;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .tile .tpick{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;text-align:left;background:none;border:0;padding:7px 4px 7px 10px;color:var(--ink)}
 .tile .tn{font-weight:600;font-size:14px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.tile .tb{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .tq{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .tq b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
 .tile .tadd{flex:none;width:44px;border:0;border-left:1px solid var(--line);background:var(--sunk);color:var(--accent);font-size:22px;font-weight:600;line-height:1}
@@ -304,6 +305,10 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .ritem:first-child{border-top:0}
 .ritem input,.ritem select{width:100%;min-width:0}
 .ritem .rn{font-weight:600;font-size:14px;overflow-wrap:anywhere}
+.brands{display:flex;align-items:baseline;gap:8px;margin:2px 0 8px}
+.brands .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.brands .chip{white-space:nowrap;flex:none}
+.brands .chip .n{font-family:var(--f-mono);font-weight:500;opacity:.7}
 .src-tag{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
 .preview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;text-align:center}
 .preview div{background:var(--sunk);border-radius:8px;padding:8px 4px}
@@ -849,7 +854,7 @@ function logRecipe(r,servings){
 }
 
 /* ---------------- Food databases ---------------- */
-// Open Food Facts (barcodes and branded foods) and USDA FoodData Central (generic foods). Both allow browser requests.
+// Open Food Facts (barcodes and branded foods) and USDA FoodData Central (generic and US branded foods). Both allow browser requests.
 const OFF='https://world.openfoodfacts.org', FDC='https://api.nal.usda.gov/fdc/v1';
 const OFF_FIELDS='code,product_name,generic_name,brands,nutriments,serving_size,serving_quantity,serving_quantity_unit,quantity,product_quantity,product_quantity_unit';
 function timedFetch(url,ms=12000){const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t))}
@@ -885,7 +890,7 @@ function fromOFF(p){
 async function offSearch(q){
   const r=await timedFetch(`${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=${OFF_FIELDS}`);
   if(!r.ok) throw new Error('off'); const j=await r.json();
-  return (j.products||[]).map(fromOFF).filter(Boolean);
+  return brandFirst((j.products||[]).map(fromOFF).filter(Boolean),q);
 }
 async function offBarcode(code){
   const r=await timedFetch(`${OFF}/api/v2/product/${encodeURIComponent(code)}?fields=${OFF_FIELDS}`);
@@ -912,13 +917,29 @@ function fromFDC(x){
   METRICS.forEach(m=>{if(per100[m.k]==null) per100[m.k]=0});
   const servings=(x.foodMeasures||[]).filter(m=>m.gramWeight>0&&m.disseminationText&&!/not specified/i.test(m.disseminationText))
     .slice(0,8).map(m=>({n:m.disseminationText,amt:m.gramWeight}));
-  return {name:x.description,brand:'',barcode:'',source:'usda',ext:'usda:'+x.fdcId,base:'g',per100,...(Object.keys(nmeta).length?{nmeta}:{}),servings};
+  // Branded foods give nutrients per 100 g or ml and the label's serving
+  const su=normUnit(x.servingSizeUnit||''), liquid=/^(ml|mlt)$/.test(su), ss=num(x.servingSize);
+  if(ss>0&&(liquid||/^(g|grm)$/.test(su))) servings.unshift({n:(x.householdServingFullText||`${+ss.toFixed(1)} ${liquid?'ml':'g'}`).trim(),amt:ss});
+  const brand=tidyCaps(x.brandName||x.brandOwner||'');
+  return {name:tidyCaps(x.description),brand,barcode:(x.gtinUpc||'').replace(/\D/g,''),source:'usda',ext:'usda:'+x.fdcId,base:liquid?'ml':'g',
+    per100,...(Object.keys(nmeta).length?{nmeta}:{}),servings};
 }
+// FDC's branded entries are often in capitals: "GREEK NONFAT YOGURT" reads as "Greek Nonfat Yogurt"
+const tidyCaps=t=>{t=String(t||'').trim(); return /[a-z]/.test(t)?t:t.toLowerCase().replace(/(^|[\s\-\/(&])([a-z])/g,(m,a,b)=>a+b.toUpperCase())};
+const qWords=q=>q.toLowerCase().split(/\s+/).filter(Boolean);
+// Does the search name this food's brand? "kirkland greek yogurt" names Kirkland Signature
+// When the search names a brand, that brand's foods lead; otherwise the database's order holds (generic first if asked)
+function brandFirst(list,q,generic){
+  const ws=qWords(q), rank=f=>brandNamed(f,ws)?0:generic&&f.brand?2:1;
+  return list.map((f,i)=>({f,i})).sort((a,b)=>rank(a.f)-rank(b.f)||a.i-b.i).map(x=>x.f);
+}
+const brandNamed=(f,ws)=>!!f.brand&&qWords(f.brand).some(b=>b.length>2&&ws.some(w=>w.length>2&&(b.startsWith(w)||w.startsWith(b))));
 async function fdcSearch(q){
   const key=state.settings.usdaKey||'DEMO_KEY';
-  const r=await timedFetch(`${FDC}/foods/search?api_key=${encodeURIComponent(key)}&query=${encodeURIComponent(q)}&pageSize=20&dataType=${encodeURIComponent('Foundation,SR Legacy,Survey (FNDDS)')}`);
+  const r=await timedFetch(`${FDC}/foods/search?api_key=${encodeURIComponent(key)}&query=${encodeURIComponent(q)}&pageSize=30&dataType=${encodeURIComponent('Foundation,SR Legacy,Survey (FNDDS),Branded')}`);
   if(!r.ok) throw new Error(r.status===429?'limit':'fdc'); const j=await r.json();
-  return (j.foods||[]).map(fromFDC).filter(Boolean);
+  // Generic foods before branded ones, unless the search names a brand
+  return brandFirst((j.foods||[]).map(fromFDC).filter(Boolean),q,true);
 }
 const SRC_NAME={custom:'My food',off:'Open Food Facts',usda:'USDA'};
 
@@ -1178,7 +1199,7 @@ let day=todayKey(), pendingDelete=null, sheet=null;
 // While adding foods to a recipe, picking a food adds it to this draft instead of logging it
 let building=null;
 // Food search: what's typed, and the online results for it
-const search={q:'',off:null,usda:null,busy:{off:false,usda:false},err:{},timer:null,seq:0};
+const search={q:'',off:null,usda:null,busy:{off:false,usda:false},err:{},timer:null,seq:0,brand:null,brandName:''};
 
 // How far through a budget the day is: the meter's fill, a class for its colour and the line under it
 function budgetState(kind,eaten,target,u,f=fmt){
@@ -1467,28 +1488,28 @@ function recipeRow(r){
 const portionText=(f,p)=>itemText(f,p).replace(/^1 × /,'');
 // A suggestion is a tile: tap the name to open it like any food, or + to add its usual portion
 function suggestionTile(x){
-  let pick,add,name,lbl,kcal;
+  let pick,add,name,brand,lbl,kcal;
   if(x.kind==='recipe'){const r=x.item, s=r.lastServings||1;
     pick=`data-pickrecipe="${r.id}"`; add=`data-quickrecipe="${r.id}"`; name=r.name; lbl=servingsText(s); kcal=recipeTotals(r,s).kcal}
   else{const f=x.item, p=defaultPortion(f);
-    pick=`data-pickfood="${f.id}"`; add=`data-quickfood="${f.id}"`; name=f.name; lbl=portionText(f,p); kcal=nutrientsFor(f,baseAmount(f,p.qty,p.unit)).kcal}
-  return `<div class="tile"><button class="tpick" ${pick}><span class="tn">${esc(name)}</span><span class="tq">${esc(lbl)} · <b>${fmt(kcal)}</b> kcal</span></button><button class="tadd" ${add} aria-label="Add ${esc(lbl)} of ${esc(name)}">+</button></div>`;
+    pick=`data-pickfood="${f.id}"`; add=`data-quickfood="${f.id}"`; name=f.name; brand=f.brand; lbl=portionText(f,p); kcal=nutrientsFor(f,baseAmount(f,p.qty,p.unit)).kcal}
+  return `<div class="tile"><button class="tpick" ${pick}><span class="tn">${esc(name)}</span>${brand?`<span class="tb">${esc(brand)}</span>`:''}<span class="tq">${esc(lbl)} · <b>${fmt(kcal)}</b> kcal</span></button><button class="tadd" ${add} aria-label="Add ${esc(lbl)} of ${esc(name)}">+</button></div>`;
 }
 // One line per food or recipe in the shortlist, with the calories of the portion a tap would start from
-function slimRow(attr,name,tag,portion,kcal){
-  return `<button class="food slim" ${attr}><span class="fn">${esc(name)}${tag?` <span class="src-tag">${esc(tag)}</span>`:''}</span><span class="fq">${esc(portion)} · <b>${fmt(kcal)}</b> kcal</span></button>`;
+function slimRow(attr,name,tag,portion,kcal,brand){
+  return `<button class="food slim" ${attr}><span class="fn">${esc(name)}${brand?` <span class="fb">${esc(brand)}</span>`:''}${tag?` <span class="src-tag">${esc(tag)}</span>`:''}</span><span class="fq">${esc(portion)} · <b>${fmt(kcal)}</b> kcal</span></button>`;
 }
-const slimFood=f=>{const p=defaultPortion(f); return slimRow(`data-pickfood="${f.id}"`,f.name,!f.lastUsed&&f.seen?'Looked up':'',portionText(f,p),nutrientsFor(f,baseAmount(f,p.qty,p.unit)).kcal)};
+const slimFood=f=>{const p=defaultPortion(f); return slimRow(`data-pickfood="${f.id}"`,f.name,!f.lastUsed&&f.seen?'Looked up':'',portionText(f,p),nutrientsFor(f,baseAmount(f,p.qty,p.unit)).kcal,f.brand)};
 const slimRecipe=r=>slimRow(`data-pickrecipe="${r.id}"`,r.name,'','1 serving',recipeTotals(r,1).kcal);
 const matchesWords=(text,words)=>{const h=text.toLowerCase(); return words.every(w=>h.includes(w))};
 function localMatches(q){
-  const words=q.toLowerCase().split(/\s+/).filter(Boolean), sc=usageScores();
+  const words=qWords(q), sc=usageScores();
   const score=f=>(sc.get('f:'+f.id)||0)*10+(f.uses||0)+(f.lastUsed?1:0);
   return state.foods.filter(f=>matchesWords(`${f.name} ${f.brand||''}`,words))
-    .sort((a,b)=>score(b)-score(a)||lastTouched(b).localeCompare(lastTouched(a))).slice(0,12);
+    .sort((a,b)=>brandNamed(b,words)-brandNamed(a,words)||score(b)-score(a)||lastTouched(b).localeCompare(lastTouched(a))).slice(0,12);
 }
 function recipeMatches(q){
-  const words=q.toLowerCase().split(/\s+/).filter(Boolean), sc=usageScores();
+  const words=qWords(q), sc=usageScores();
   return state.recipes.filter(r=>matchesWords(r.name,words)).sort((a,b)=>(sc.get('r:'+b.id)||0)-(sc.get('r:'+a.id)||0)).slice(0,6);
 }
 // Before typing: suggestions for this time of day, then recipes, then the latest foods logged or looked up
@@ -1504,21 +1525,38 @@ function shortlistHtml(){
 function resultsHtml(){
   const q=search.q.trim();
   if(!q) return shortlistHtml();
-  const mine=localMatches(q), recipes=building?[]:recipeMatches(q), seen=new Set(state.foods.map(f=>f.ext).filter(Boolean));
+  const recipes=building?[]:recipeMatches(q), seen=new Set(state.foods.map(f=>f.ext).filter(Boolean));
+  // The same product can come from both databases (or already be yours): keep the first, matched by barcode
+  const codes=new Set(state.foods.map(f=>barcodeKey(f.barcode)).filter(Boolean)), fresh=f=>{
+    const c=barcodeKey(f.barcode); if(seen.has(f.ext)||c&&codes.has(c)) return false; if(c) codes.add(c); return true};
+  const found={off:(search.off||[]).filter(fresh),usda:(search.usda||[]).filter(fresh)};
+  const all=localMatches(q), b=search.brand, inBrand=f=>!b||brandKey(f.brand)===b;
+  const chips=brandChips([...all,...found.off,...found.usda]), mine=all.filter(inBrand);
   const group=(key,title)=>{
-    const list=(search[key]||[]).filter(f=>!seen.has(f.ext));
+    const list=found[key].filter(inBrand);
     let body;
     if(search.busy[key]) body=`<p class="note"><span class="spin"></span>Searching ${title}…</p>`;
     else if(search.err[key]) body=`<p class="note">${esc(search.err[key])}</p>`;
-    else if(search[key]&&!list.length) body=`<p class="note">No matches in ${title}.</p>`;
+    else if(search[key]&&!list.length) body=`<p class="note">No matches in ${title}${b?' for that brand':''}.</p>`;
     else if(!search[key]) return '';
     else body=list.slice(0,15).map((f,i)=>foodRow(f,`data-pickext="${key}:${search[key].indexOf(f)}"`)).join('');
     return `<div class="rgroup"><h4>${title}</h4>${body}</div>`;
   };
-  return `${recipes.length?`<div class="rgroup"><h4>Recipes</h4>${recipes.map(recipeRow).join('')}</div>`:''}
+  return `${chips}${recipes.length&&!b?`<div class="rgroup"><h4>Recipes</h4>${recipes.map(recipeRow).join('')}</div>`:''}
     ${mine.length?`<div class="rgroup"><h4>My foods</h4>${mine.map(f=>foodRow(f,`data-pickfood="${f.id}"`)).join('')}</div>`:''}
     ${group('off','Open Food Facts')}${group('usda','USDA')}
     <p class="note">Can’t find it? <button class="btn sm ghost" data-act="newFood">Create a food</button></p>`;
+}
+const barcodeKey=c=>String(c||'').replace(/\D/g,'').replace(/^0+/,'');
+const brandKey=t=>String(t||'').trim().toLowerCase();
+// When results span several brands, chips narrow them to one; the brand most found leads
+function brandChips(list){
+  const by=new Map();
+  for(const f of list){const k=brandKey(f.brand); if(!k) continue; const x=by.get(k)||{n:0,name:f.brand}; x.n++; by.set(k,x)}
+  if(search.brand&&!by.has(search.brand)) by.set(search.brand,{n:0,name:search.brandName||search.brand});
+  if(by.size<2&&!search.brand) return '';
+  const top=[...by].sort((a,b)=>(b[0]===search.brand)-(a[0]===search.brand)||b[1].n-a[1].n||a[1].name.localeCompare(b[1].name)).slice(0,10);
+  return `<div class="brands"><span class="src-tag">Brand</span><div class="chips">${top.map(([k,x])=>`<button class="chip" data-brand="${esc(k)}" data-brandname="${esc(x.name)}" aria-pressed="${k===search.brand}">${esc(x.name)}${x.n?` <span class="n">${x.n}</span>`:''}</button>`).join('')}</div></div>`;
 }
 function refreshResults(){const r=document.getElementById('results'); if(r) r.innerHTML=resultsHtml()}
 function runSearch(){
@@ -2351,7 +2389,8 @@ function sheetEditFood(){
     <p class="small muted">Copy the nutrition from the label for one serving.</p>
     <form class="form" id="foodForm" autocomplete="off">
       <label class="field wide">Name<input type="text" name="name" value="${esc(f.name||'')}" required></label>
-      <label class="field">Brand<input type="text" name="brand" value="${esc(f.brand||'')}"></label>
+      <label class="field">Brand<input type="text" name="brand" value="${esc(f.brand||'')}" list="brandList" placeholder="Optional"></label>
+      <datalist id="brandList">${[...new Set(state.foods.map(x=>(x.brand||'').trim()).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
       <label class="field">Barcode<input type="text" name="barcode" inputmode="numeric" value="${esc(f.barcode||'')}"></label>
       <label class="field wide">Serving name<input type="text" name="sname" value="${esc(s?s.n:'')}" placeholder="e.g. 1 bar, 2 slices"></label>
       <label class="field">Serving size<input type="number" name="samt" inputmode="decimal" step="any" min="0" value="${+fmtQty(sq)}" required></label>
@@ -2581,7 +2620,7 @@ document.addEventListener('input',e=>{
     const chg=t.value!==t.defaultValue; if(was.classList.contains('chg')!==chg){was.classList.toggle('chg',chg); setTimeout(drawLeaders)} if(!chg) return;
     was.innerHTML=x==null?'cleared':base==null?'new':`from ${esc(fmt(base,1))} <b>${x-base>0?'+':x-base<0?'−':'±'}${Math.abs(x-base).toFixed(1)}</b>`;
     return}
-  if(t.id==='foodQ'){search.q=t.value; clearTimeout(search.timer); search.seq++; search.off=search.usda=null; search.err={}; search.busy={off:false,usda:false}; refreshResults(); search.timer=setTimeout(runSearch,650); return}
+  if(t.id==='foodQ'){search.q=t.value; search.brand=null; clearTimeout(search.timer); search.seq++; search.off=search.usda=null; search.err={}; search.busy={off:false,usda:false}; refreshResults(); search.timer=setTimeout(runSearch,650); return}
   if(t.id==='gTarget'&&sheet&&sheet.type==='goal'){const cur=document.querySelector('#gPaces input:checked'); document.getElementById('gPaces').innerHTML=pacesHtml(num(t.value),cur?num(cur.value):null); return}
   if(t.id==='rQty'&&sheet&&sheet.type==='recipe'){document.getElementById('rPreview').innerHTML=recipePreviewHtml(sheet.recipe,t.value); document.getElementById('rItems').innerHTML=recipeItemsHtml(sheet.recipe,t.value);
     document.getElementById('rDay').innerHTML=dayWithHtml(recipeNutrients(sheet.recipe,t.value)); return}
@@ -2614,6 +2653,7 @@ document.addEventListener('click',async e=>{
   if(d.addday){day=addDays(day,+d.addday); adderWhenChanged(); return}
   if(d.act==='addNow'){day=todayKey(); addTime=null; adderWhenChanged(); return}
   if(d.pickfood){openSheet({type:'food',food:foodById(d.pickfood)});return}
+  if(d.brand!=null){const on=search.brand!==d.brand; search.brand=on?d.brand:null; search.brandName=on?d.brandname:''; refreshResults(); return}
   if(d.pickext){const [k,i]=d.pickext.split(':'), f=(search[k]||[])[+i]; if(f){openSheet({type:'food',food:rememberLookup(f)}); refreshResults()} return}
   if(d.pickrecipe){const r=recipeById(d.pickrecipe); if(r) openSheet({type:'recipe',recipe:r}); return}
   if(d.quickfood){const f=foodById(d.quickfood); if(!f) return; const p=defaultPortion(f), rec=logPortion(f,p.qty,p.unit); toast(`Added ${itemText(f,p)} of ${rec.name}`); render(); return}
@@ -2648,7 +2688,7 @@ document.addEventListener('click',async e=>{
   if(d.act==='snooze'){lsSet('nh.snooze',todayKey()); render(); return}
   if(d.range){range=d.range; try{sessionStorage.setItem('nh.range',range)}catch(_){}; render(); return}
   if(d.act==='quick'){openSheet({type:'quick'});return}
-  if(d.act==='newFood'){const log=adder; openSheet({type:'editFood',food:{name:log?search.q.trim():''},then:log?'log':null});return}
+  if(d.act==='newFood'){const log=adder; openSheet({type:'editFood',food:{name:log?search.q.trim():'',brand:log&&search.brand?search.brandName:''},then:log?'log':null});return}
   if(d.act==='editThisFood'){openSheet({type:'editFood',food:sheet.food,then:'log',entryId:sheet.entryId});return}
   if(d.editfood){openSheet({type:'editFood',food:foodById(d.editfood)});return}
   if(d.rmfood){const x=foodById(d.rmfood), rs=usedInRecipe(d.rmfood); dropRecord('foods',d.rmfood);
