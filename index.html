@@ -323,7 +323,12 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 #pDef:empty{display:none}
 .scanbox{position:relative;background:#000;border-radius:var(--r);overflow:hidden;aspect-ratio:4/3}
 .scanbox video{width:100%;height:100%;object-fit:cover;display:block}
-.scanbox::after{content:"";position:absolute;left:12%;right:12%;top:38%;bottom:38%;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 999px rgba(0,0,0,.25)}
+.scanbox::after{content:"";position:absolute;left:10%;right:10%;top:30%;bottom:30%;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 999px rgba(0,0,0,.25);pointer-events:none}
+.scantools{position:absolute;right:8px;bottom:8px;display:flex;gap:6px;z-index:1}
+.scantools .btn{background:rgba(0,0,0,.55);border-color:rgba(255,255,255,.35);color:#fff}
+.scantools .btn[aria-pressed="true"]{background:#fff;color:#000}
+.filebtn{cursor:pointer;display:inline-block}
+.field.filled input{border-color:var(--ok);box-shadow:0 0 0 1px var(--ok)}
 .note{font-size:13px;color:var(--muted)}
 /* charts: colors validated for both themes (scale dots stay neutral; goal path also dashed) */
 :root{--c-a:#c2410c;--c-b:#2f6fd0;--c-c:#0f8a7e;--c-d:#8a4fc9;--c-e:#b8860b;--c-f:#c23a78;--c-g:#55803a}
@@ -892,11 +897,6 @@ async function offSearch(q){
   if(!r.ok) throw new Error('off'); const j=await r.json();
   return brandFirst((j.products||[]).map(fromOFF).filter(Boolean),q);
 }
-async function offBarcode(code){
-  const r=await timedFetch(`${OFF}/api/v2/product/${encodeURIComponent(code)}?fields=${OFF_FIELDS}`);
-  if(r.status===404) return null; if(!r.ok) throw new Error('off');
-  const j=await r.json(); return j.status===1||j.product?fromOFF({...j.product,code:j.product&&j.product.code||code}):null;
-}
 // FoodData Central lists every nutrient it has for a food, each with its id, name and unit
 const FDC_SKIP=new Set([1062,2045]);   // energy in kJ, and FDC's proximates heading
 function fromFDC(x){
@@ -942,6 +942,38 @@ async function fdcSearch(q){
   return brandFirst((j.foods||[]).map(fromFDC).filter(Boolean),q,true);
 }
 const SRC_NAME={custom:'My food',off:'Open Food Facts',usda:'USDA'};
+async function offProduct(code){
+  const r=await timedFetch(`${OFF}/api/v2/product/${encodeURIComponent(code)}?fields=${OFF_FIELDS},image_nutrition_url`);
+  if(r.status===404) return null; if(!r.ok) throw new Error('off');
+  const j=await r.json(); return j.status===1&&j.product?{...j.product,code:j.product.code||code}:null;
+}
+// USDA's branded foods carry the package's UPC or GTIN, sometimes padded to 14 digits
+async function fdcBarcode(code){
+  const key=state.settings.usdaKey||'DEMO_KEY', want=barcodeKey(code);
+  for(const q of [...new Set([code,code.padStart(14,'0')])]){
+    const r=await timedFetch(`${FDC}/foods/search?api_key=${encodeURIComponent(key)}&query=${encodeURIComponent(q)}&dataType=Branded&pageSize=5`);
+    if(!r.ok) throw new Error(r.status===429?'limit':'fdc');
+    const hit=((await r.json()).foods||[]).find(x=>barcodeKey(x.gtinUpc)===want);
+    if(hit){const f=fromFDC(hit); if(f) return f}
+  }
+  return null;
+}
+// Both databases at once. Open Food Facts wins when it has the nutrition; a product it lists without nutrition still
+// gives its name, brand and a photo of the label to read. {food} | {hint:{name,brand,img}} | {offline:true}
+async function lookupBarcode(code){
+  const vs=codeVariants(code);
+  const off=(async()=>{for(const c of vs.slice(0,3)){const p=await offProduct(c); if(p) return p} return null})();
+  const fdc=fdcBarcode(vs[0].length===8&&vs[1]?vs[1]:vs[0]);
+  off.catch(()=>{}); fdc.catch(()=>{});
+  let p=null, offDown=false;
+  try{p=await off}catch(_){offDown=true}
+  const food=p&&fromOFF(p); if(food) return {food};
+  let u=null, fdcDown=false;
+  try{u=await fdc}catch(_){fdcDown=true}
+  if(u) return {food:u};
+  if(offDown&&fdcDown) return {offline:true};
+  return {hint:p?{name:(p.product_name||p.generic_name||'').trim(),brand:(p.brands||'').split(',')[0].trim(),img:p.image_nutrition_url||null}:null};
+}
 
 /* ---------------- Trend, expenditure & goal ---------------- */
 // Trend weight smooths daily scale noise (exponential moving average, 10% per weigh-in).
@@ -2359,6 +2391,8 @@ function sheetSaveRecipe(){
 }
 // The picked micros that aren't already one of the five metrics, for forms that take nutrition by hand
 const extraMicros=()=>state.settings.micros.filter(c=>!isMetric(c.k)).map(c=>NUT[c.k]);
+// The food form's fields beyond the five metrics: your chosen micros, plus whatever else a label photo had
+const foodFormNuts=()=>{const xs=extraMicros(); (sheet&&sheet.labelKeys||[]).forEach(k=>{if(!xs.some(x=>x.k===k)) xs.push(NUT[k])}); return xs};
 function sheetQuick(){
   const e=sheet.entryId&&state.entries.find(x=>x.id===sheet.entryId);
   return `<h2>${e?'Edit entry':'Quick add'}</h2>
@@ -2384,26 +2418,30 @@ function sheetMove(){
 function sheetEditFood(){
   const f=sheet.food||{}, s=(f.servings||[])[0], base=f.base||'g', amt=s?s.amt:100;
   const su=s&&UNITS[s.unit]?s.unit:base, sq=s&&UNITS[s.unit]?s.q:amt;
-  const n=f.per100?nutrientsFor(f,amt):{};
+  const n=f.per100?nutrientsFor(f,amt):{}, lit=k=>sheet.filled&&sheet.filled.has(k)?' filled':'';
   return `<h2>${f.id?'Edit food':'Create a food'}</h2>
-    <p class="small muted">Copy the nutrition from the label for one serving.</p>
+    ${sheet.notFound?`<p class="small">${f.name?'Open Food Facts has this product’s name but not its nutrition':`${esc(sheet.notFound)} isn’t in Open Food Facts or USDA`}. Photograph the Nutrition Facts panel to fill it in.</p>`:''}
+    <div class="row"><label class="btn ${sheet.filled?'':'primary '}filebtn">${sheet.filled?'Read another photo':'Fill from a label photo'}<input type="file" accept="image/*" capture="environment" data-photo="label" hidden></label>${sheet.labelImg?`<button class="btn" type="button" data-act="offLabel">Read the Open Food Facts label photo</button>`:''}</div>
+    <p class="note" id="labelNote">${esc(sheet.labelNote||'Or copy the nutrition from the label for one serving.')}</p>
     <form class="form" id="foodForm" autocomplete="off">
       <label class="field wide">Name<input type="text" name="name" value="${esc(f.name||'')}" required></label>
       <label class="field">Brand<input type="text" name="brand" value="${esc(f.brand||'')}" list="brandList" placeholder="Optional"></label>
       <datalist id="brandList">${[...new Set(state.foods.map(x=>(x.brand||'').trim()).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
       <label class="field">Barcode<input type="text" name="barcode" inputmode="numeric" value="${esc(f.barcode||'')}"></label>
       <label class="field wide">Serving name<input type="text" name="sname" value="${esc(s?s.n:'')}" placeholder="e.g. 1 bar, 2 slices"></label>
-      <label class="field">Serving size<input type="number" name="samt" inputmode="decimal" step="any" min="0" value="${+fmtQty(sq)}" required></label>
+      <label class="field${lit('serving')}">Serving size<input type="number" name="samt" inputmode="decimal" step="any" min="0" value="${+fmtQty(sq)}" required></label>
       <label class="field">Unit<select name="sunit">${Object.keys(UNITS).map(u=>`<option value="${u}"${u===su?' selected':''}>${UNITS[u].n}</option>`).join('')}</select></label>
-      ${METRICS.map(m=>`<label class="field">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${n[m.k]!=null?+fmtQty(n[m.k]):''}"${m.k==='kcal'?' required':''}></label>`).join('')}
-      ${extraMicros().map(x=>`<label class="field">${x.n} (${x.u})<input type="number" name="${x.k}" inputmode="decimal" step="any" min="0" value="${n[x.k]!=null?+fmtQty(sig3(n[x.k])):''}"></label>`).join('')}
+      ${METRICS.map(m=>`<label class="field${lit(m.k)}">${m.n} (${m.u})<input type="number" name="${m.k}" inputmode="decimal" step="any" min="0" value="${n[m.k]!=null?+fmtQty(n[m.k]):''}"${m.k==='kcal'?' required':''}></label>`).join('')}
+      ${foodFormNuts().map(x=>`<label class="field${lit(x.k)}">${x.n} (${x.u})<input type="number" name="${x.k}" inputmode="decimal" step="any" min="0" value="${n[x.k]!=null?+fmtQty(sig3(n[x.k])):''}"></label>`).join('')}
       <div class="row full"><button class="btn primary" type="submit">Save food</button></div>
     </form>`;
 }
 function sheetScan(){
   return `<h2>Scan a barcode</h2>
-    <div class="scanbox"><video id="scanVideo" playsinline muted></video></div>
-    <p class="note" id="scanNote">Point the camera at the barcode.</p>
+    <div class="scanbox"><video id="scanVideo" playsinline muted></video>
+      <div class="scantools"><button class="btn sm" type="button" id="scanTorch" data-scantool="torch" aria-pressed="false" hidden>Light</button><button class="btn sm" type="button" id="scanZoom" data-scantool="zoom" aria-label="Zoom" hidden>1×</button><button class="btn sm" type="button" id="scanSwitch" data-scantool="switch" hidden>Switch camera</button></div></div>
+    <p class="note" id="scanNote">Hold the barcode inside the box, about a hand’s length away. Tap the picture to focus.</p>
+    <div class="row"><label class="btn sm filebtn">Take a photo instead<input type="file" accept="image/*" capture="environment" data-photo="barcode" hidden></label></div>
     <form class="row" id="barcodeForm" autocomplete="off"><input type="text" name="code" inputmode="numeric" placeholder="Or type the barcode number" aria-label="Barcode number" style="flex:1 1 200px"><button class="btn sm" type="submit">Look up</button></form>`;
 }
 function renderSheet(){
@@ -2446,56 +2484,328 @@ window.addEventListener('popstate',()=>{
 });
 
 /* ---------------- Barcode scanning ---------------- */
-// Native BarcodeDetector where the browser has it (Chrome on Android); ZXing from a CDN elsewhere (iPhone Safari).
-const scan={stream:null,timer:null,zx:null,busy:false};
-function loadZxing(){return new Promise((res,rej)=>{
-  if(window.ZXingBrowser) return res(window.ZXingBrowser);
-  const sc=document.createElement('script'); sc.src='https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
-  sc.onload=()=>window.ZXingBrowser?res(window.ZXingBrowser):rej(new Error('zxing')); sc.onerror=()=>rej(new Error('zxing')); document.head.appendChild(sc)})}
+// The camera opens at full HD with continuous focus: left to the browser it streamed about 640×480, too soft for the
+// thin bars of a small barcode. Native BarcodeDetector where the browser has it (Chrome on Android); ZXing from a CDN
+// elsewhere (iPhone Safari). Light, zoom and camera switching show when the camera supports them, and a photo from the
+// phone's own camera app is the fallback when the live picture won't read.
+const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
+const SCAN_FORMATS=['ean_13','ean_8','upc_a','upc_e'];
+const scan={stream:null,track:null,timer:null,zx:null,busy:false,torch:false,zoom:1};
+function loadScript(src,name){return new Promise((res,rej)=>{
+  if(window[name]) return res(window[name]);
+  const sc=document.createElement('script'); sc.src=src; sc.crossOrigin='anonymous';
+  sc.onload=()=>window[name]?res(window[name]):rej(new Error(name)); sc.onerror=()=>{sc.remove(); rej(new Error(name))}; document.head.appendChild(sc)})}
+const loadZxing=()=>loadScript(ZXING_URL,'ZXingBrowser');
+async function nativeDetector(){
+  if(!('BarcodeDetector' in window)) return null;
+  const fmts=await BarcodeDetector.getSupportedFormats().catch(()=>[]), want=SCAN_FORMATS.filter(f=>fmts.includes(f));
+  return want.length?new BarcodeDetector({formats:want}):null;
+}
+// UPC and EAN end in a check digit, so a misread bar doesn't look up the wrong food
+function validCode(c){
+  if(/^\d{12,14}$/.test(c)) return validEan(c);
+  if(/^\d{8}$/.test(c)) return validEan(c)||/^[01]/.test(c)&&validEan(upcEtoA(c));
+  return /^\d{6,7}$/.test(c);   // a UPC-E as some readers give it, without its number system or check digit
+}
+function validEan(c){const d=[...c].map(Number), chk=d.pop(); const s=d.reverse().reduce((a,x,i)=>a+x*(i%2?1:3),0); return (10-s%10)%10===chk}
+// A short UPC-E (on small packs) spelled out as the full UPC-A the databases list
+function upcEtoA(e){
+  const [ns,d1,d2,d3,d4,d5,d6,chk]=e;
+  const mid=d6<='2'?d1+d2+d6+'0000'+d3+d4+d5:d6==='3'?d1+d2+d3+'00000'+d4+d5:d6==='4'?d1+d2+d3+d4+'00000'+d5:d1+d2+d3+d4+d5+'0000'+d6;
+  return ns+mid+chk;
+}
+// The spellings one product goes by: UPC-A 12 digits, EAN-13 with a leading 0, GTIN-14, and UPC-E expanded
+function codeVariants(c){
+  const v=[c];
+  if(c.length===8&&/^[01]/.test(c)){const a=upcEtoA(c); v.push(a,'0'+a)}
+  if(c.length===12) v.push('0'+c,'00'+c);
+  if(c.length===13&&c[0]==='0') v.push(c.slice(1),'0'+c);
+  if(c.length===14&&c.startsWith('00')) v.push(c.slice(2),c.slice(1));
+  return [...new Set(v)];
+}
+async function openCamera(){
+  const want=id=>({audio:false,video:{...(id?{deviceId:{exact:id}}:{facingMode:{ideal:'environment'}}),
+    width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}}});
+  const id=lsGet('nh.camera');
+  try{return await navigator.mediaDevices.getUserMedia(want(id))}
+  catch(e){if(!id||e.name==='NotAllowedError') throw e; lsSet('nh.camera',null); return navigator.mediaDevices.getUserMedia(want(null))}
+}
+async function backCameras(){
+  const all=(await navigator.mediaDevices.enumerateDevices().catch(()=>[])).filter(d=>d.kind==='videoinput');
+  const back=all.filter(d=>/back|rear|environment/i.test(d.label));
+  return back.length?back:all;
+}
 async function startScan(){
   const v=document.getElementById('scanVideo'), note=document.getElementById('scanNote');
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){note.textContent='This browser can’t use the camera. Type the barcode number instead.';return}
+  const live=()=>sheet&&sheet.type==='scan'&&document.getElementById('scanVideo')===v;
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){note.textContent='This browser can’t use the camera. Take a photo or type the barcode number instead.';return}
   try{
-    if('BarcodeDetector' in window){
-      const fmts=await BarcodeDetector.getSupportedFormats().catch(()=>[]);
-      const want=['ean_13','ean_8','upc_a','upc_e'].filter(f=>fmts.includes(f));
-      if(want.length){
-        const det=new BarcodeDetector({formats:want});
-        scan.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
-        if(!sheet||sheet.type!=='scan'){stopScan();return}
-        v.srcObject=scan.stream; await v.play();
-        scan.timer=setInterval(async()=>{if(scan.busy||v.readyState<2) return; try{const r=await det.detect(v); if(r[0]) gotBarcode(r[0].rawValue)}catch(_){}},250);
-        return;
-      }
+    const det=await nativeDetector(), Z=det?null:await loadZxing();
+    if(!live()) return;
+    scan.stream=await openCamera();
+    if(!live()){stopScan();return}
+    v.srcObject=scan.stream; await v.play();
+    scan.track=scan.stream.getVideoTracks()[0]; scan.torch=false; scan.zoom=1;
+    await tuneCamera();
+    if(det){
+      let inFlight=false;
+      scan.timer=setInterval(async()=>{
+        if(inFlight||scan.busy||v.readyState<2) return; inFlight=true;
+        try{const r=await det.detect(v); const hit=r.map(x=>x.rawValue.replace(/\D/g,'')).find(validCode); if(hit) gotBarcode(hit)}catch(_){}
+        inFlight=false;
+      },120);
+    }else{
+      const reader=new Z.BrowserMultiFormatOneDReader();
+      scan.zx=await reader.decodeFromVideoElement(v,r=>{if(r&&!scan.busy){const c=r.getText().replace(/\D/g,''); if(validCode(c)) gotBarcode(c)}});
+      if(!live()) stopScan();
     }
-    const Z=await loadZxing(); if(!sheet||sheet.type!=='scan') return;
-    const reader=new Z.BrowserMultiFormatReader();
-    scan.zx=await reader.decodeFromConstraints({video:{facingMode:'environment'}},v,r=>{if(r&&!scan.busy) gotBarcode(r.getText())});
-    if(!sheet||sheet.type!=='scan') stopScan();
   }catch(e){
-    if(note) note.textContent=e&&e.name==='NotAllowedError'?'Camera access was blocked. Allow it in the browser, or type the barcode number.':'Couldn’t start the camera. Type the barcode number instead.';
+    if(note) note.textContent=e&&e.name==='NotAllowedError'?'Camera access was blocked. Allow it in the browser, or take a photo or type the barcode number.':'Couldn’t start the camera. Take a photo or type the barcode number instead.';
   }
+}
+// Continuous focus and exposure where the camera offers them, and the buttons for what else it can do
+async function tuneCamera(){
+  const t=scan.track, c=t&&t.getCapabilities?t.getCapabilities():{}, adv={};
+  if((c.focusMode||[]).includes('continuous')) adv.focusMode='continuous';
+  if((c.exposureMode||[]).includes('continuous')) adv.exposureMode='continuous';
+  if(Object.keys(adv).length) await t.applyConstraints({advanced:[adv]}).catch(()=>{});
+  scan.caps=c;
+  const show=(id,on)=>{const b=document.getElementById(id); if(b) b.hidden=!on};
+  show('scanTorch',!!c.torch);
+  show('scanZoom',!!(c.zoom&&c.zoom.max>=2));
+  show('scanSwitch',(await backCameras()).length>1);
+}
+async function scanTool(which){
+  const t=scan.track, c=scan.caps||{}; if(!t) return;
+  if(which==='torch'){scan.torch=!scan.torch; await t.applyConstraints({advanced:[{torch:scan.torch}]}).catch(()=>{scan.torch=false});
+    const b=document.getElementById('scanTorch'); if(b) b.setAttribute('aria-pressed',scan.torch); return}
+  if(which==='zoom'){
+    // 1× → 2× → 3× (as far as the camera goes): stand back so the camera can focus, then zoom in on the barcode
+    const steps=[1,2,3].filter(z=>z>=(c.zoom.min||1)&&z<=c.zoom.max), next=steps[(steps.indexOf(scan.zoom)+1)%steps.length]||1;
+    await t.applyConstraints({advanced:[{zoom:next}]}).then(()=>{scan.zoom=next}).catch(()=>{});
+    const b=document.getElementById('scanZoom'); if(b) b.textContent=`${scan.zoom}×`; return}
+  if(which==='switch'){
+    const cams=await backCameras(), cur=t.getSettings().deviceId, i=cams.findIndex(d=>d.deviceId===cur);
+    lsSet('nh.camera',cams[(i+1)%cams.length].deviceId); stopScan(); renderSheet(); return}
+}
+// Tap the picture to focus there
+function scanFocusAt(ev){
+  const t=scan.track, c=scan.caps||{}; if(!t||!c.focusMode) return;
+  const r=ev.target.getBoundingClientRect(), x=(ev.clientX-r.left)/r.width, y=(ev.clientY-r.top)/r.height;
+  const mode=c.focusMode.includes('single-shot')?'single-shot':c.focusMode.includes('continuous')?'continuous':null; if(!mode) return;
+  t.applyConstraints({advanced:[{pointsOfInterest:[{x,y}],focusMode:mode}]}).catch(()=>{});
+  if(mode==='single-shot') setTimeout(()=>{if(scan.track===t&&c.focusMode.includes('continuous')) t.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{})},2500);
 }
 function stopScan(){
   clearInterval(scan.timer); scan.timer=null; scan.busy=false;
   if(scan.zx){try{scan.zx.stop()}catch(_){} scan.zx=null}
   if(scan.stream){scan.stream.getTracks().forEach(t=>t.stop()); scan.stream=null}
+  scan.track=null;
+}
+// A still photo of the barcode, from the phone's camera app or gallery
+async function barcodeFromPhoto(file){
+  const note=document.getElementById('scanNote'); if(note) note.innerHTML='<span class="spin"></span>Reading the photo…';
+  let code=null;
+  try{
+    const det=await nativeDetector();
+    if(det){const bmp=await createImageBitmap(file); code=(await det.detect(bmp)).map(x=>x.rawValue.replace(/\D/g,'')).find(validCode)||null}
+    if(!code){
+      const Z=await loadZxing(), url=URL.createObjectURL(file);
+      try{const r=await new Z.BrowserMultiFormatOneDReader().decodeFromImageUrl(url); const c=r.getText().replace(/\D/g,''); if(validCode(c)) code=c}
+      catch(_){} finally{URL.revokeObjectURL(url)}
+    }
+  }catch(_){}
+  if(!sheet||sheet.type!=='scan') return;
+  if(code){gotBarcode(code);return}
+  if(note) note.textContent='Couldn’t find a barcode in that photo. Fill the frame with the barcode, hold steady, and try again.';
 }
 async function gotBarcode(code){
-  code=String(code||'').replace(/\D/g,''); if(!code) return;
+  code=String(code||'').replace(/\D/g,''); if(!code||scan.busy) return;
   scan.busy=true; if(navigator.vibrate) navigator.vibrate(40);
   const note=document.getElementById('scanNote'); if(note) note.innerHTML=`<span class="spin"></span>Looking up ${esc(code)}…`;
-  const mine=foodByBarcode(code);
+  const mine=codeVariants(code).map(foodByBarcode).find(Boolean);
   if(mine){openSheet({type:'food',food:mine});return}
-  try{
-    const f=await offBarcode(code);
-    if(!sheet||sheet.type!=='scan') return;
-    if(f){openSheet({type:'food',food:rememberLookup(f)});return}
-    toast('Not in Open Food Facts. Add it from the label.');
-    openSheet({type:'editFood',food:{barcode:code},then:'log'});
-  }catch(_){
-    scan.busy=false; if(note) note.textContent=`Couldn’t reach Open Food Facts to look up ${code}. Check your connection and try again.`;
+  const r=await lookupBarcode(code);
+  if(!sheet||sheet.type!=='scan') return;
+  if(r.food){openSheet({type:'food',food:rememberLookup(r.food)});return}
+  if(r.offline){scan.busy=false; if(note) note.textContent=`Couldn’t reach Open Food Facts or USDA to look up ${code}. Check your connection and try again.`; return}
+  // Not listed anywhere: start the food from what's known and offer to read the label
+  const h=r.hint||{};
+  openSheet({type:'editFood',food:{barcode:code,name:h.name||'',brand:h.brand||''},then:'log',notFound:code,labelImg:h.img||null});
+}
+
+/* ---------------- Reading a nutrition label ---------------- */
+// A photo of the Nutrition Facts panel is read on the phone by Tesseract (fetched from jsDelivr on first use; the service
+// worker keeps the reader and Tesseract keeps its English data in IndexedDB, so it works offline after that). The text is
+// matched line by line to nutrients and fills the food form; you check the numbers against the package before saving.
+const TESS='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/', TESS_CORE='https://cdn.jsdelivr.net/npm/tesseract.js-core@6.0.0',
+  TESS_LANG='https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int';
+// Nutrient names as labels print them, in one pattern so a line like "Total Fat 8g  Total Carb. 37g" splits into both.
+// Earlier alternatives win at the same spot: "Saturated Fat" is saturated fat, not fat; "Calories from Fat" is skipped.
+const LABEL_NAMES=[
+  ['skip',/calories\s*from\s*fat|fat\s*cal\w*|servings?\s*per\s*\w+|%\s*dail\w*\s*val\w*|daily\s*value/],
+  ['addedSugars',/(?:incl\w*\s*)?added\s*sugars?/],
+  ['satFat',/saturated\s*fat|sat\.?\s*fat|saturates|saturated/],
+  ['transFat',/trans\.?\s*fat|trans/],
+  ['monoFat',/mono\w*/], ['polyFat',/poly\w*/],
+  ['cholesterol',/chol\w*/],
+  ['sodium',/sodium/], ['salt',/\bsalt\b/],
+  ['fiber',/(?:dietary\s*)?fib(?:er|re)/],
+  ['sugars',/(?:total\s*)?sugars?|of\s*which\s*sugars/],
+  ['carbs',/(?:total\s*)?carb\w*\.?/],
+  ['protein',/protein/],
+  ['fat',/(?:total\s*)?fat\b|lipid\w*/],
+  ['kcal',/calories|calorie|energy|kcal/],
+  ['potassium',/potassium/], ['calcium',/calcium/], ['iron',/\biron\b/], ['magnesium',/magnesium/], ['zinc',/\bzinc\b/],
+  ['vitD',/vit\w*\.?\s*d\b/], ['vitA',/vit\w*\.?\s*a\b/], ['vitC',/vit\w*\.?\s*c\b/], ['vitB12',/vit\w*\.?\s*b\s*12/],
+  ['vitB6',/vit\w*\.?\s*b\s*6/], ['caffeine',/caffeine/]];
+const LABEL_RE=new RegExp(LABEL_NAMES.map(([,r])=>`(${r.source})`).join('|'),'gi');
+// US Daily Values, to read "%DV" when a vitamin's amount isn't printed and to pick between OCR readings of a smudged "g"
+const LABEL_DV={...REC,fat:78,carbs:275,protein:50};
+const LABEL_AMT=/(<|less\s*than\s*)?(\d+(?:\.\d+)?)\s*(mcg|µg|ug|mg|g|kcal|kj|cal)?(?![\d.]|\s*%)/gi;
+// Common misreads: "Og" for 0g, "1O" for 10, "mq" for mg, "1,5 g" in European decimals, "1,046 kJ" thousands
+function labelTidy(l){
+  return l.replace(/[|]/g,' ').replace(/\b[oO](?=\s*(?:m?g|mcg)\b)/g,'0').replace(/(\d)[oO]|[oO](?=\d)/g,(m,d)=>(d||'')+'0')
+    .replace(/(\d)\s*(?:mq|rng|m9)\b/g,'$1mg').replace(/(\d),(\d{3})(?!\d)/g,'$1$2').replace(/(\d),(\d{1,2})(?!\d)/g,'$1.$2')
+    .replace(/(\d)\s*(?:meg|mcq)\b/g,'$1mcg');
+}
+const pctIn=s=>{const m=s.match(/(\d+(?:\.\d+)?)\s*%/); return m?+m[1]:null};
+function amountsIn(s){
+  const out=[]; LABEL_AMT.lastIndex=0; let m;
+  while((m=LABEL_AMT.exec(s))){out.push({v:+m[2],u:(m[3]||'').toLowerCase(),lt:!!m[1],raw:m[2]})}
+  return out;
+}
+// One nutrient's value from the text after its name (or, for "Includes 10g Added Sugars", the text before it)
+function labelValue(k,seg,before,amb){
+  const unit=k==='kcal'?'kcal':k==='salt'?'g':NUT[k].u;
+  let as=amountsIn(seg), pct=pctIn(seg);
+  if(k==='kcal'){
+    const kc=as.find(a=>a.u==='kcal'||a.u==='cal'), kj=as.find(a=>a.u==='kj');
+    if(kc) return kc.v; if(kj) return kj.v/4.184;
+    const a=as.find(a=>!a.u); return a?a.v:null;
   }
+  as=as.filter(a=>a.u!=='kcal'&&a.u!=='kj'&&a.u!=='cal');
+  if(!as.length&&before){const b=amountsIn(before).filter(a=>a.u); if(b.length) as=[b[b.length-1]]}
+  if(!as.length){
+    // Only a %DV printed: work the amount out from the Daily Value (vitamins and minerals only)
+    if(pct!=null&&LABEL_DV[k]&&!['fat','carbs','protein','satFat','sodium','cholesterol','fiber','addedSugars'].includes(k)) return pct*LABEL_DV[k]/100;
+    return null;
+  }
+  const a=as[0];
+  let v=a.lt?a.v/2:a.v;
+  if(a.u){const c=convertMass(v,a.u,unit); return c!=null?c:v}
+  // No unit: a "g" read as "9" turns 8g into 89. Check against the %DV when there is one.
+  if(unit==='g'&&/9$/.test(a.raw)&&a.raw.length>1){
+    const alt=+a.raw.slice(0,-1).replace(/\.$/,'')||0;
+    if(pct!=null&&LABEL_DV[k]){const want=pct*LABEL_DV[k]/100; if(Math.abs(alt-want)<Math.abs(v-want)) v=alt}
+    else if(v>100) v=alt; else amb[k]=alt;
+  }
+  return v;
+}
+const FRACTION=s=>{s=s.trim(); let m=s.match(/^(\d+)\s+(\d+)\/(\d+)$/); if(m) return +m[1]+m[2]/m[3]; m=s.match(/^(\d+)\/(\d+)$/); if(m) return m[1]/m[2]; return num(s)};
+const HOUSE_UNITS={cup:'cup',cups:'cup',tbsp:'tbsp',tbs:'tbsp',tablespoon:'tbsp',tablespoons:'tbsp',tsp:'tsp',teaspoon:'tsp',teaspoons:'tsp',oz:'oz','fl oz':'floz','fl. oz':'floz',ml:'ml',g:'g'};
+// The serving: "Serving size 2/3 cup (55g)", Canada's "Per 1 cup (250 mL)", or a European "per 100 g" column
+function labelServing(lines){
+  for(const [i,l] of lines.entries()){
+    const m=l.match(/serv\w*\s*s[il1]z\w*\s*:?\s*(.*)$/i)||l.match(/^\s*(?:amount\s*)?per\s+(?!100\s*(?:g|ml)\b)(.+)$/i); if(!m) continue;
+    // The amount can sit on the next line or two when the label's columns read apart; "(559)" is "(55g)" misread
+    let rest=m[1].trim(); if(!/\d/.test(rest)) rest=lines.slice(i+1,i+3).join(' ');
+    rest=rest.replace(/\((\d+(?:\.\d+)?)\s*9\)/g,'($1g)');
+    const gs=[...rest.matchAll(/(\d+(?:\.\d+)?)\s*(g|ml)\b/gi)], name=rest.replace(/\(.*$/,'').replace(/\s*\d+(?:\.\d+)?\s*(?:g|ml)\b.*$/i,'').replace(/[:;,.]+$/,'').trim();
+    if(gs.length){const g=gs[gs.length-1]; return {n:name,q:+g[1],unit:g[2].toLowerCase()}}
+    const h=rest.match(/(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?)\s*(fl\.?\s*oz|cups?|tbsp|tbs|tablespoons?|tsp|teaspoons?|oz)\b/i);
+    if(h){const u=HOUSE_UNITS[h[2].toLowerCase().replace(/\s+/g,' ').replace('fl. oz','fl oz')]; const q=FRACTION(h[1]); if(u&&q>0) return {n:name,q,unit:u}}
+  }
+  return null;
+}
+// Text from the label in, {serving, per100, vals} out. vals hold one serving (or 100 g/ml when the label is per 100).
+function parseLabel(text){
+  const lines=String(text||'').split(/\r?\n/).map(labelTidy).filter(l=>l.trim());
+  const vals={}, amb={};
+  lines.forEach((l,li)=>{
+    const hits=[]; LABEL_RE.lastIndex=0; let m;
+    while((m=LABEL_RE.exec(l))){const i=m.slice(1).findIndex(x=>x!=null); hits.push({k:LABEL_NAMES[i][0],at:m.index,end:m.index+m[0].length})}
+    hits.forEach((h,i)=>{
+      if(h.k==='skip'||vals[h.k]!=null) return;
+      let seg=l.slice(h.end,i+1<hits.length?hits[i+1].at:l.length);
+      const before=l.slice(i?hits[i-1].end:0,h.at);
+      // A big "Calories" with its number on the next line
+      if(h.k==='kcal'&&!/\d/.test(seg)&&lines[li+1]&&/^\s*\d+\s*$/.test(lines[li+1])) seg=lines[li+1];
+      const v=labelValue(h.k,seg,h.k==='addedSugars'?before:null,amb); if(v!=null&&v>=0&&isFinite(v)) vals[h.k]=v;
+    });
+  });
+  // Unsure readings of protein, fat and carbs settle on whichever agrees best with the calories
+  const atwater=()=>4*(vals.protein||0)+9*(vals.fat||0)+4*(vals.carbs||0);
+  if(vals.kcal) for(const k of ['protein','fat','carbs']) if(k in amb){const was=vals[k], e1=Math.abs(atwater()-vals.kcal); vals[k]=amb[k]; if(Math.abs(atwater()-vals.kcal)>=e1) vals[k]=was}
+  if(vals.sodium==null&&vals.salt!=null) vals.sodium=vals.salt*400;
+  delete vals.salt;
+  if(vals.kcal==null&&(vals.protein!=null||vals.fat!=null||vals.carbs!=null)) vals.kcalEstimated=true;
+  const per100=/per\s*100\s*(g|ml)\b|100\s*(g|ml)\s*(?:serving|portion)?\s*$/im.test(lines.join('\n'))&&!lines.some(l=>/serv\w*\s*s[il1]z/i.test(l));
+  const unit100=/per\s*100\s*ml/i.test(lines.join('\n'))?'ml':'g';
+  return {serving:per100?{n:'',q:100,unit:unit100}:labelServing(lines),per100,vals};
+}
+let tessWorker=null, tessProgress=null;
+function labelReader(){
+  if(!tessWorker) tessWorker=loadScript(TESS+'tesseract.min.js','Tesseract')
+    .then(T=>T.createWorker('eng',1,{workerPath:TESS+'worker.min.js',corePath:TESS_CORE,langPath:TESS_LANG,
+      logger:m=>tessProgress&&tessProgress(m)}))
+    .catch(e=>{tessWorker=null; throw e});
+  return tessWorker;
+}
+// Grey, evenly contrasted and about 2000 px across: what Tesseract reads best from a phone photo
+async function labelCanvas(blob){
+  const bmp=await createImageBitmap(blob), long=Math.max(bmp.width,bmp.height), k=Math.min(2.5,2000/long);
+  const c=document.createElement('canvas'); c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k);
+  const x=c.getContext('2d'); x.filter='grayscale(1) contrast(1.3)'; x.drawImage(bmp,0,0,c.width,c.height);
+  return c;
+}
+const labelScore=p=>Object.keys(p.vals).length+(p.serving?2:0);
+async function readLabel(blob){
+  const w=await labelReader(), img=await labelCanvas(blob);
+  let best=null;
+  // Read as one block first; a photo with the panel off to one side reads better as scattered text
+  for(const psm of ['6','11']){
+    await w.setParameters({tessedit_pageseg_mode:psm});
+    const {data}=await w.recognize(img,{rotateAuto:true});
+    const p=parseLabel(data.text); p.text=data.text;
+    if(!best||labelScore(p)>labelScore(best)) best=p;
+    if(['kcal','protein','fat','carbs'].every(k=>best.vals[k]!=null)&&best.serving) break;
+  }
+  return best;
+}
+// Reads the photo and fills the food form with it, keeping the name, brand and barcode already typed
+async function fillFromLabel(src){
+  const note=document.getElementById('labelNote'), form=document.getElementById('foodForm'); if(!form||!sheet||sheet.type!=='editFood') return;
+  const at=sheet, say=t=>{const n=document.getElementById('labelNote'); if(n&&sheet===at) n.innerHTML=t};
+  say('<span class="spin"></span>Getting the label reader ready…');
+  tessProgress=m=>{
+    if(m.status==='recognizing text') say(`<span class="spin"></span>Reading the label… ${Math.round(m.progress*100)}%`);
+    else if(/load|initializ/.test(m.status)) say(`<span class="spin"></span>Getting the label reader ready (first time only)… ${m.progress?Math.round(m.progress*100)+'%':''}`);
+  };
+  let p;
+  try{
+    const blob=typeof src==='string'?await timedFetch(src,20000).then(r=>{if(!r.ok) throw new Error('img'); return r.blob()}):src;
+    p=await readLabel(blob);
+  }catch(e){
+    say(e&&e.message==='img'?'Couldn’t load the Open Food Facts photo. Take your own photo of the label instead.':
+      'Couldn’t start the label reader. It needs a connection the first time; check it and try again.'); return;
+  }finally{tessProgress=null}
+  if(sheet!==at) return;
+  const keys=Object.keys(p.vals).filter(k=>NUT[k]);
+  if(!keys.length){say('Couldn’t read the nutrition from that photo. Lay the package flat, fill the frame with the Nutrition Facts panel, avoid glare, and try again.'); return}
+  const fd=new FormData(form), s=p.serving||{n:String(fd.get('sname')||''),q:num(fd.get('samt'))||100,unit:UNITS[fd.get('sunit')]?fd.get('sunit'):'g'};
+  const amt=s.q*UNITS[s.unit].f, base=UNITS[s.unit].kind==='mass'?'g':'ml';
+  if(p.vals.kcalEstimated) p.vals.kcal=4*(p.vals.protein||0)+9*(p.vals.fat||0)+4*(p.vals.carbs||0);
+  const per100={}; for(const k of keys) per100[k]=p.vals[k]*100/amt;
+  const old=sheet.food||{};
+  sheet.food={...old,name:String(fd.get('name')||'').trim()||old.name||'',brand:String(fd.get('brand')||'').trim(),barcode:String(fd.get('barcode')||'').replace(/\D/g,''),
+    base,per100:{...per100},servings:[{n:s.n||`${fmtQty(s.q)} ${UNITS[s.unit].n}`,amt,q:s.q,unit:s.unit}]};
+  sheet.filled=new Set([...keys,...(p.serving?['serving']:[])]);
+  sheet.labelKeys=keys.filter(k=>!isMetric(k));
+  const miss=['kcal','protein','fat','carbs'].filter(k=>p.vals[k]==null||k==='kcal'&&p.vals.kcalEstimated).map(k=>NUT[k].n.toLowerCase());
+  sheet.labelNote=`Filled ${keys.length} value${keys.length===1?'':'s'} from the label${p.serving?'':' (the serving size wasn’t readable: check it)'}`+
+    `${miss.length?`; couldn’t read ${miss.join(', ')}${p.vals.kcalEstimated?' (calories worked out from the macros)':''}`:''}. Check them against the package before saving.`;
+  renderSheet();
 }
 
 /* ---------------- Logging ---------------- */
@@ -2584,7 +2894,7 @@ document.addEventListener('submit',e=>{
     // Nutrition stays per 100 g or ml: the food keeps its base when its density converts the serving's unit
     const kind=UNITS[su].kind, base=old&&old.density&&old.base?old.base:kind==='mass'?'g':'ml', samt=old&&old.density?baseAmount({...old,base},sq,su):sq*UNITS[su].f;
     const per100={...(old&&old.per100||{})}; METRICS.forEach(m=>per100[m.k]=(num(f.get(m.k))||0)*100/samt);
-    extraMicros().forEach(x=>{const v=num(f.get(x.k)); if(v!=null&&v>=0) per100[x.k]=v*100/samt; else delete per100[x.k]});
+    foodFormNuts().forEach(x=>{const v=num(f.get(x.k)); if(v!=null&&v>=0) per100[x.k]=v*100/samt; else delete per100[x.k]});
     const sname=String(f.get('sname')||'').trim()||`${fmtQty(sq)} ${UNITS[su].n}`;
     const rest=old&&old.servings?old.servings.slice(1):[];
     const rec={...(old||{}),id:old?old.id:'f'+uid6(),name,brand:String(f.get('brand')||'').trim(),barcode:String(f.get('barcode')||'').replace(/\D/g,''),
@@ -2680,6 +2990,8 @@ document.addEventListener('click',async e=>{
     openSheet(f?{type:'food',food:f,entryId:x.id}:{type:'quick',entryId:d.editent}); return}
   if(d.rment){const x=state.entries.find(e=>e.id===d.rment); dropRecord('entries',d.rment); toast(`Removed ${x?x.name:'entry'}`); if(sheet) closeSheet(); render(); return}
   if(d.act==='scan'){openSheet({type:'scan'});return}
+  if(d.scantool){scanTool(d.scantool);return}
+  if(d.act==='offLabel'&&sheet&&sheet.labelImg){fillFromLabel(sheet.labelImg);return}
   if(d.act==='goal'){openSheet({type:'goal'});return}
   if(d.act==='doImport'&&sheet&&sheet.plan){const p=sheet.plan; applyImport(p); closeSheet();
     toast(`Imported ${fmt(p.days.length)} days, ${fmt(p.weighins.length)} weigh-ins and ${fmt(p.foods.length)} foods`); tab='trends'; try{sessionStorage.setItem('nh.tab',tab)}catch(_){}; render(); return}
@@ -2714,8 +3026,10 @@ document.addEventListener('click',async e=>{
     return}
 });
 document.addEventListener('keydown',e=>{if(e.key!=='Escape') return; if(sheet) closeSheet(); else if(adder) closeAdder()});
+document.addEventListener('click',e=>{if(e.target.id==='scanVideo') scanFocusAt(e)});
 document.addEventListener('change',async e=>{
   const t=e.target;
+  if(t.dataset.photo&&t.files&&t.files[0]){const file=t.files[0]; t.value=''; if(t.dataset.photo==='barcode') barcodeFromPhoto(file); else fillFromLabel(file); return}
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
   if(t.id==='addDay'&&t.value){day=t.value; adderWhenChanged(); return}
   if(t.id==='addTime'){addTime=t.value||null; const w=document.getElementById('adderWhen'); if(w&&!w.querySelector('[data-act="addNow"]')&&addTime) w.insertAdjacentHTML('beforeend','<button class="btn nav-btn" type="button" data-act="addNow" aria-label="Back to now" title="Back to now">↺</button>'); return}

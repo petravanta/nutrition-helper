@@ -1,6 +1,6 @@
 // Keeps the app opening without a connection. The page itself is fetched
 // network-first, so a new version shows up as soon as the phone is online.
-const CACHE='nh-v16';
+const CACHE='nh-v17';
 const SHELL=['./','manifest.webmanifest','icons/icon-192.png','icons/icon-512.png'];
 
 self.addEventListener('install',e=>{
@@ -16,7 +16,9 @@ self.addEventListener('fetch',e=>{
   const own=u.origin===location.origin;
   const fonts=u.hostname==='fonts.googleapis.com'||u.hostname==='fonts.gstatic.com';
   const shared=u.hostname==='petravanta.github.io'&&u.pathname.startsWith('/general/shared/');
-  if(!own&&!fonts&&!shared) return;   // food databases, Google sign-in and Drive go straight to the network
+  // The barcode and label readers come from jsDelivr at pinned versions, so a cached copy never goes stale
+  const lib=u.hostname==='cdn.jsdelivr.net'&&/@\d/.test(u.pathname);
+  if(!own&&!fonts&&!shared&&!lib) return;   // food databases, Google sign-in and Drive go straight to the network
   if(r.mode==='navigate'){
     // Any URL in scope (including shortcut links like ?do=log) opens the cached page offline
     e.respondWith(fetch(r).then(res=>{const c=res.clone(); caches.open(CACHE).then(k=>k.put('./',c)); return res})
