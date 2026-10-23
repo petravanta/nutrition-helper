@@ -257,6 +257,11 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .food.slim .fq b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
 .rgrp .ent.sub{padding-left:14px;border-top-style:dashed}
 /* the day's report, by part of the day or by a nutrient */
+.ent .todayrow{grid-column:1/-1}
+.ent .today{margin-top:2px;display:inline-flex;white-space:nowrap;max-width:100%;text-align:left;align-items:center;gap:6px;min-height:34px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--sunk);color:var(--ink);font-size:13px}
+.ent .today b{color:var(--accent);font-size:17px;line-height:1}
+.ent .today .q{color:var(--muted);overflow:hidden;text-overflow:ellipsis;font-family:var(--f-mono);font-size:12px}
+.ent .today:active{background:var(--accent);color:var(--accent-ink)}
 .ent .kc small{display:block;text-align:right;font-size:11px;color:var(--faint)}
 .ent .kc.by{font-weight:600;text-align:right}
 .ent .kc.by small{font-weight:400}
@@ -1859,6 +1864,13 @@ function pacesHtml(targetDisp,current){
       <span class="pn">${paceName(r)}</span><span class="pk">${p?fmt(p.kcal):'–'}<br><span class="src-tag">kcal/day</span></span>
       <span class="pd">${r?(p?perWeek(p.weeklyKg):'')+(t?` · reach it ${esc(parseDay(t.date).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}))} (${Math.ceil(t.weeks)} weeks)`:''):'Hold your trend weight'}${p&&p.clamped?' · held at a safe minimum':''}</span></label>`}).join('');
 }
+// On the Foods tab: one tap logs the usual portion to today, whatever day Today is showing
+function todayButton(attr,lbl,kcal,name){
+  return `<div class="todayrow"><button class="today" ${attr} aria-label="Add ${esc(lbl)} of ${esc(name)} to today"><b>+</b> Add to today <span class="q">${esc(lbl)} · ${fmt(kcal)} kcal</span></button></div>`;
+}
+const todayFood=f=>{const p=defaultPortion(f); return todayButton(`data-todayfood="${f.id}"`,portionText(f,p),nutrientsFor(f,baseAmount(f,p.qty,p.unit)).kcal,f.name)};
+const todayRecipe=r=>{const s=r.lastServings||1; return todayButton(`data-todayrecipe="${r.id}"`,servingsText(s),recipeTotals(r,s).kcal,r.name)};
+function logToToday(fn){const was=day, wt=addTime; day=todayKey(); addTime=null; try{fn()}finally{day=was; addTime=wt}}
 let foodSort=(()=>{try{return sessionStorage.getItem('nh.foodSort')||'used'}catch(_){return 'used'}})();
 function viewFoods(){
   // Sorting by a part of the day ranks by times eaten in it, then by the share of all logs it holds
@@ -1879,7 +1891,7 @@ function viewFoods(){
           <div class="meta">${weeksSpark(u('r:'+r.id))}${usageLine(u('r:'+r.id))}${inPart(u('r:'+r.id))}</div></div>
         ${partsChart(u('r:'+r.id),pi)||'<span></span>'}
         <button class="btn sm ghost" data-pickrecipe="${r.id}">Log</button>
-        <button class="x-btn" data-rmrecipe="${r.id}" aria-label="Remove ${esc(r.name)}">×</button></div>`).join('')}</div>`
+        <button class="x-btn" data-rmrecipe="${r.id}" aria-label="Remove ${esc(r.name)}">×</button>${todayRecipe(r)}</div>`).join('')}</div>`
       :`<p class="small muted">Group foods you often eat together, then log them in one go. Build one here, or log a meal and use <b>Save as recipe</b> on Today.</p>`}
     </section>
     <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used. The line shows how many times you logged it each week over the last ${USAGE_WEEKS} weeks; the columns show when you eat it, by the parts of the day in Settings.</p>
@@ -1891,7 +1903,7 @@ function viewFoods(){
           <div class="meta">${per100Summary(f)}</div>
           <div class="meta">${weeksSpark(u('f:'+f.id))}${usageLine(u('f:'+f.id))}${inPart(u('f:'+f.id))} <span class="src-tag">${esc(SRC_NAME[f.source]||'')}${f.barcode?` · ${esc(f.barcode)}`:''}</span></div></div>
         ${partsChart(u('f:'+f.id),pi)||'<span></span>'}
-        <button class="x-btn" data-rmfood="${f.id}" aria-label="Remove ${esc(f.name)}">×</button></div>`).join('')
+        <button class="x-btn" data-rmfood="${f.id}" aria-label="Remove ${esc(f.name)}">×</button>${todayFood(f)}</div>`).join('')
       :`<p class="empty">No foods yet. Log something from Today, or create one here.</p>`}</section>
   </div>`;
 }
@@ -2987,6 +2999,8 @@ document.addEventListener('click',async e=>{
   if(d.pickext){const [k,i]=d.pickext.split(':'), f=(search[k]||[])[+i]; if(f){openSheet({type:'food',food:rememberLookup(f)}); refreshResults()} return}
   if(d.pickrecipe){const r=recipeById(d.pickrecipe); if(r) openSheet({type:'recipe',recipe:r}); return}
   if(d.quickfood){const f=foodById(d.quickfood); if(!f) return; const p=defaultPortion(f), rec=logPortion(f,p.qty,p.unit); toast(`Added ${itemText(f,p)} of ${rec.name}`); render(); return}
+  if(d.todayfood){const f=foodById(d.todayfood); if(!f) return; const p=defaultPortion(f); let rec; logToToday(()=>rec=logPortion(f,p.qty,p.unit)); toast(`Added ${itemText(f,p)} of ${rec.name} to today`); render(); return}
+  if(d.todayrecipe){const r=recipeById(d.todayrecipe); if(!r) return; const s=r.lastServings||1; logToToday(()=>logRecipe(r,s)); toast(`Added ${servingsText(s)} of ${r.name} to today`); render(); return}
   if(d.quickrecipe){const r=recipeById(d.quickrecipe); if(!r) return; const s=r.lastServings||1; logRecipe(r,s); toast(`Added ${servingsText(s)} of ${r.name}`); render(); return}
   if(d.movegroup){openSheet({type:'move',group:d.movegroup});return}
   if(d.moveby){const e=state.entries.find(x=>x.id===sheetMoveIds()[0]); if(e) doMove(addDays(e.date,+d.moveby),null); return}
