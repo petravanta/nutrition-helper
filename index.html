@@ -269,6 +269,19 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .ehead:first-child{margin-top:0}
 .ehead span{font-family:var(--f-mono);text-transform:none;letter-spacing:0;font-weight:500}
 .ehead+.ent,.ehead+.rgrp .ent:first-child{border-top:0}
+/* Today's eaten rows: one tight line each, name and amount on the left, chart and calories on the right, grams on tap */
+.entries .ent{grid-template-columns:minmax(0,1fr) auto auto;gap:0 6px;padding:5px 0}
+.entries .ent .who{min-width:0}
+.entries .ent .nm{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px;line-height:1.25}
+.entries .ent .meta{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
+.entries .ent .fig{display:flex;align-items:center;gap:8px;background:none;border:0;padding:2px 4px;border-radius:6px;color:var(--ink);font-size:14px;min-height:32px}
+.entries .ent .fig .kc{min-width:58px;text-align:right}
+.entries .ent .fig .mcols{height:20px}
+.entries .ent.open .fig{background:var(--sunk)}
+.entries .ent .x-btn{padding:4px 2px 4px 6px;font-size:16px}
+.entries .ent .det{display:none;grid-column:1/-1;font-family:var(--f-mono);font-size:11.5px;color:var(--muted);padding:2px 0 1px}
+.entries .ent.open .det{display:block}
+.entries .rgrp .ent.sub{padding-left:12px}
 /* each food's protein, fat and carbs as a share of the day's targets, all on one scale */
 .mcols{display:flex;gap:2px;align-items:flex-end;height:28px;padding:0 1px;border-bottom:1px solid var(--line)}
 .mcols i{display:block;width:6px;border-radius:1.5px 1.5px 0 0}
@@ -1279,10 +1292,9 @@ function microsPanel(){
     <div class="row" style="justify-content:space-between"><h3>Micros</h3><button class="btn sm ghost" data-act="chooseMicros">Choose</button></div>
     <div>${on.map(c=>microRow(c,n[c.k]||0,microLimit(c))).join('')}</div></section>`;
 }
-function entryMeta(e){
-  const amt=e.qty==null?'':unitKind(e.unit)==='serving'?`${fmtQty(e.qty)} × ${esc(e.unitLabel)} · `:`${fmtQty(e.qty)} ${esc(e.unitLabel)} · `;
-  return `${amt}P ${fmt(e.protein)} · F ${fmt(e.fat)} · C ${fmt(e.carbs)}${microsMeta(k=>entryNut(e,k))}`;
-}
+const entryAmt=e=>e.qty==null?'':unitKind(e.unit)==='serving'?`${fmtQty(e.qty)} × ${esc(e.unitLabel)}`:`${fmtQty(e.qty)} ${esc(e.unitLabel)}`;
+// The grams behind a row's mini chart, shown when the chart is tapped
+const macroGrams=get=>`P ${fmt(get('protein'))} g · F ${fmt(get('fat'))} g · C ${fmt(get('carbs'))} g${microsMeta(get)}`;
 function viewToday(){
   const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), w=weighinOn(day);
   return `<div class="stack">
@@ -1299,7 +1311,7 @@ function viewToday(){
     <section class="panel stack">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
         <div class="row">${list.length?sortPicker():''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
-      ${list.length?`${miniKey()}<div class="entries">${entriesHtml(list)}</div><p class="small muted">Tap a food to change its amount or move it to another day or time.</p>`
+      ${list.length?`${miniKey()}<div class="entries">${entriesHtml(list)}</div><p class="small muted">Tap a food to change its amount or move it to another day or time. Tap its chart for the grams.</p>`
         :`<p class="empty">Nothing logged yet.<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button></p>`}
     </section>
     <section class="panel stack">
@@ -1440,17 +1452,27 @@ function miniCols(get,max=macroScale.max){
     return `<i class="${c}" style="height:${s>0?Math.max(1,Math.min(100,100*s/max)).toFixed(1):0}%"></i>`}).join('')}</span>`;
 }
 const miniKey=()=>`<div class="mkey" aria-hidden="true">${MINI.map(([k,c])=>`<span><i class="${c}"></i>${NUT[k].n}</span>`).join('')}<span>· share of the day’s target</span></div>`;
-const entRow=(e,sub,k='time',tot=0)=>`<div class="ent${sub?' sub':''}">
-  <div><button class="nm" data-editent="${e.id}">${esc(e.name)}</button><div class="meta">${sub?'':timeMeta(e)}${k!=='time'&&k!=='kcal'?`${fmt(e.kcal)} kcal · `:''}${entryMeta(e)}</div></div>
-  ${miniCols(n=>entryNut(e,n))}${rowFig(k,entryNut(e,k),e.kcal,tot)}
-  <button class="x-btn" data-rment="${e.id}" aria-label="Remove ${esc(e.name)}">×</button></div>`;
+// One food eaten: name, then when and how much on a small line; the chart and figure open its grams
+const openDet=new Set();
+const metaLine=parts=>parts.filter(Boolean).join(' · ');
+function entCore(id,nameBtn,meta,get,fig,rm){
+  const open=openDet.has(id);
+  return `<div class="ent${open?' open':''}"><div class="who">${nameBtn}${meta?`<div class="meta">${meta}</div>`:''}</div>
+  <button class="fig" data-entdet="${esc(id)}" aria-expanded="${open}" aria-label="Show grams">${miniCols(get)}${fig}</button>${rm}
+  <div class="det">${macroGrams(get)}</div></div>`;
+}
+const entRow=(e,sub,k='time',tot=0)=>entCore(e.id,`<button class="nm" data-editent="${e.id}">${esc(e.name)}</button>`,
+  metaLine([sub?'':timeMeta(e).replace(/ · $/,''),entryAmt(e),k!=='time'&&k!=='kcal'?`${fmt(e.kcal)} kcal`:'']),
+  n=>entryNut(e,n),rowFig(k,entryNut(e,k),e.kcal,tot),`<button class="x-btn" data-rment="${e.id}" aria-label="Remove ${esc(e.name)}">×</button>`)
+  .replace('class="ent','class="ent'+(sub?' sub':''));
 // A recipe log shows as one line with its foods under it, where each can still be changed or removed
 function groupHtml(items,k,tot){
   const e=items[0], g=e.recipe.group, kc=items.reduce((a,x)=>a+(Number(x.kcal)||0),0);
-  const sum=n=>items.reduce((a,x)=>a+entryNut(x,n),0), t=n=>fmt(sum(n));
+  const sum=n=>items.reduce((a,x)=>a+entryNut(x,n),0);
   const subs=k==='time'?items:[...items].sort((a,b)=>entryNut(b,k)-entryNut(a,k));
-  return `<div class="rgrp"><div class="ent"><div><button class="nm" data-movegroup="${esc(g)}">${esc(e.recipe.name)}</button><div class="meta">${timeMeta(e)}${servingsText(e.recipe.servings)}${k!=='time'&&k!=='kcal'?` · ${fmt(kc)} kcal`:''} · P ${t('protein')} · F ${t('fat')} · C ${t('carbs')}${microsMeta(sum)}</div></div>
-    ${miniCols(sum)}${rowFig(k,sum(k),kc,tot)}<button class="x-btn" data-rmgroup="${esc(g)}" aria-label="Remove ${esc(e.recipe.name)}">×</button></div>
+  return `<div class="rgrp">${entCore('g:'+g,`<button class="nm" data-movegroup="${esc(g)}">${esc(e.recipe.name)}</button>`,
+    metaLine([timeMeta(e).replace(/ · $/,''),servingsText(e.recipe.servings),k!=='time'&&k!=='kcal'?`${fmt(kc)} kcal`:'']),
+    sum,rowFig(k,sum(k),kc,tot),`<button class="x-btn" data-rmgroup="${esc(g)}" aria-label="Remove ${esc(e.recipe.name)}">×</button>`)}
     ${subs.map(x=>entRow(x,true,k,tot)).join('')}</div>`;
 }
 // Each food on its own, and each recipe log as one unit
@@ -3020,6 +3042,8 @@ document.addEventListener('click',async e=>{
   if(d.act==='recipeAddFoods'){startBuilding(); return}
   if(d.act==='buildDone'){closeAdder(); return}
   if(d.rmrecipe){const r=recipeById(d.rmrecipe); dropRecord('recipes',d.rmrecipe); toast(`Removed ${r?r.name:'recipe'}. Logged entries stay.`); if(sheet) closeSheet(); render(); return}
+  if(d.entdet){const r=t.closest('.ent'), on=!openDet.delete(d.entdet); if(on) openDet.add(d.entdet);
+    r.classList.toggle('open',on); t.setAttribute('aria-expanded',on); return}
   if(d.editent){const x=state.entries.find(e=>e.id===d.editent), f=x&&x.foodId&&foodById(x.foodId);
     openSheet(f?{type:'food',food:f,entryId:x.id}:{type:'quick',entryId:d.editent}); return}
   if(d.rment){const x=state.entries.find(e=>e.id===d.rment); dropRecord('entries',d.rment); toast(`Removed ${x?x.name:'entry'}`); if(sheet) closeSheet(); render(); return}
