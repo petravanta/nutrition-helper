@@ -191,6 +191,23 @@ input[type=date],input[type=time],input[type=search]{background:var(--surface);b
 .micset .src{display:block;font-size:12px;color:var(--muted)}
 .micset .src.own{color:var(--accent)}
 .micset .x-btn{padding:4px}
+.splitbox{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:14px;align-items:center;margin-top:8px}
+.splitbox[hidden]{display:none}
+.splitbox>p{grid-column:1/-1;margin:0}
+#splitTri{width:100%;touch-action:none;user-select:none;-webkit-user-select:none;cursor:crosshair;outline:none}
+#splitTri .tri{fill:var(--sunk);stroke:var(--line);stroke-width:1.5}
+#splitTri .grid line{stroke:var(--line);stroke-width:.7}
+#splitTri{overflow:visible} #splitTri text{font-size:11px;font-weight:600}
+#splitTri text.p{fill:var(--c-b)} #splitTri text.f{fill:var(--c-e)} #splitTri text.c{fill:var(--c-c)}
+#splitDot{fill:var(--accent);stroke:var(--surface);stroke-width:3}
+#splitTri:focus-visible #splitDot{stroke:var(--ink)}
+.splitnums{display:flex;flex-direction:column;gap:8px}
+.splitn{display:grid;grid-template-columns:84px 1fr;gap:2px 8px;align-items:center}
+.splitn>span:first-child{font-size:14px;font-weight:600;grid-row:1/3}
+.splitn i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+.splitn .p{background:var(--c-b)} .splitn .f{background:var(--c-e)} .splitn .c{background:var(--c-c)}
+.splitn input{width:64px;padding-left:8px;padding-right:4px}
+@media (max-width:460px){.splitbox{grid-template-columns:1fr}#splitTri{max-width:260px;margin:0 auto}}
 .tgh{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin:14px 0 2px}
 @media (max-width:400px){.micset{grid-template-columns:minmax(0,1fr) auto 70px 52px;gap:6px}}
 .form{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end}
@@ -546,6 +563,18 @@ const microShort=k=>MICRO_SHORT[k]||NUT[k].n.replace(/^Vitamin /,'Vit ').replace
 const microLimit=c=>c.v>0?c.v:REC[c.k]||null;
 // Macros you've set yourself (settings.macroPins) keep their number through weekly check-ins; the rest follow your goal
 const macroKind=m=>state.settings.macroKinds[m.k]||m.kind;
+// A macro split (settings.macroSplit) shares the calorie budget out by percent: 4 kcal a gram of protein or carbs, 9 of fat.
+// With one set, check-ins keep the shares and the grams follow the new budget.
+const KCAL_PER_G={protein:4,fat:9,carbs:4};
+function cleanSplit(sp){
+  if(!sp||typeof sp!=='object') return null;
+  const v=['protein','fat','carbs'].map(k=>Math.max(0,Number(sp[k])||0)), t=v[0]+v[1]+v[2]; if(!(t>0)) return null;
+  const p=Math.round(100*v[0]/t), f=Math.round(100*v[1]/t);
+  return {protein:p,fat:f,carbs:Math.max(0,100-p-f)};
+}
+const splitGrams=(kcal,sp)=>({protein:Math.round(kcal*sp.protein/100/4),fat:Math.round(kcal*sp.fat/100/9),carbs:Math.round(kcal*sp.carbs/100/4)});
+// The shares of calories that some grams give, to start the triangle where your targets are now
+const splitOf=t=>cleanSplit({protein:(t.protein||0)*4,fat:(t.fat||0)*9,carbs:(t.carbs||0)*4})||{protein:30,fat:30,carbs:40};
 const fmtNut=v=>fmt(v,v>0&&v<10?1:0);
 // Chosen micros as they read under an entry or a recipe
 function microsMeta(get){return state.settings.micros.map(c=>` · ${microShort(c.k)} ${fmtNut(get(c.k))} ${NUT[c.k].u}`).join('')}
@@ -577,6 +606,7 @@ function defaultSettings(){return{
   measureSites:null,   // which body measurements to show; null is the default set
   micros:DEFAULT_MICROS(),   // micronutrients shown on Today, with optional limits (see Micros on Today)
   macroPins:{},   // {kcal:true,…}: macros set by hand, left alone by check-ins (see Daily targets)
+  macroSplit:null,   // {protein,fat,carbs}: % of calories from each, set on the triangle in Daily targets; null follows the goal
   macroKinds:{},   // {carbs:'ceiling',…}: macros you track as at most / at least / aim for, over the usual
   weightOverlay:null,  // measurements drawn on the weight chart, on their own axis; null shows waist
   dayParts:[...DEFAULT_DAY_PARTS],   // start hours of the parts of the day the Foods page breaks usage into
@@ -609,6 +639,7 @@ function normalize(j){
     if(!s.settings.goal) MACROS.forEach(m=>{if(lastT[m.k]!=null&&lastT[m.k]!==DEFAULT_TARGETS[m.k]) s.settings.macroPins[m.k]=true});
   }
   if(!s.settings.macroKinds||typeof s.settings.macroKinds!=='object') s.settings.macroKinds={};
+  s.settings.macroSplit=cleanSplit(s.settings.macroSplit);
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
   return s;
 }
@@ -1063,8 +1094,9 @@ function goalTiming(targetKg,ratePct){
 // Macros for a calorie budget: protein from trend weight, fat a share of calories, carbs the rest. Any you've set
 // yourself stay as they are (and the rest work around them); without a goal, the defaults stand in.
 function macrosFor(kcal){
-  const g=state.settings.goal, kg=model().trendNow, cur=targetsFor(todayKey()), pin=state.settings.macroPins;
+  const g=state.settings.goal, kg=model().trendNow, cur=targetsFor(todayKey()), pin=state.settings.macroPins, sp=state.settings.macroSplit;
   if(pin.kcal) kcal=cur.kcal;
+  if(sp){const x=splitGrams(kcal,sp); MINI.forEach(([k])=>{if(pin[k]) x[k]=cur[k]}); return {kcal,...x,sodium:cur.sodium}}
   const protein=pin.protein?cur.protein:g&&kg!=null?Math.round((g.proteinPerKg||1.8)*kg):DEFAULT_TARGETS.protein;
   const fat=pin.fat?cur.fat:Math.round(kcal*(g&&g.fatPct||30)/100/9);
   const carbs=pin.carbs?cur.carbs:Math.max(0,Math.round((kcal-protein*4-fat*9)/4));
@@ -1934,15 +1966,16 @@ const kindSelect=(k,name,kind)=>`<select name="kind:${k}" aria-label="${esc(name
 // Every nutrient with a target, in one list: type a number to set your own, clear it to go back to the usual one
 function targetsSettings(){
   const on=state.settings.micros, t=targetsFor(todayKey()), pin=state.settings.macroPins, groups=[...new Set(MICRO_OPTIONS.map(x=>x.g))];
-  const usual=state.settings.goal?'From your goal':'Default';
-  const row=(k,n,u,kind,own,v,ph,src,shown)=>`<div class="micset"><span>${n} <span class="small muted">${u}</span><span class="src${own?' own':''}">${own?'Yours':src}</span></span>
+  const usual=state.settings.goal?'From your goal':'Default', sp=state.settings.macroSplit;
+  const row=(k,n,u,kind,own,v,ph,src,shown)=>`<div class="micset"${MINI.some(([x])=>x===k)?` data-splitrow="${k}"`:''}><span>${n} <span class="small muted">${u}</span><span class="src${own?' own':''}">${own?'Yours':src}</span></span>
     ${kindSelect(k,n,kind)}
     <input type="number" name="v:${k}" inputmode="decimal" step="any" min="0" value="${own?+fmtQty(v):''}" placeholder="${ph}" aria-label="${esc(n)} per day (${u})">
     <span class="row" style="gap:0;flex-wrap:nowrap">${own?`<button type="button" class="x-btn" data-unset="${k}" aria-label="Go back to the usual ${esc(n)}" title="Use the usual one">↺</button>`:''}${shown?`<button type="button" class="x-btn" data-rmmicro="${k}" aria-label="Stop showing ${esc(n)}">×</button>`:''}</span></div>`;
   return `<section class="panel stack" id="microsPanel"><h3>Daily targets</h3>
     <p class="small muted">Type a number to set your own target for any nutrient, and clear it (or tap ↺) to go back to the usual one. Macros usually follow your goal at each weekly check-in; ones you set stay put and the others work around them. Micros usually follow the FDA daily values. Changes apply from today; earlier days keep their macro targets.</p>
     <form id="targetsForm" autocomplete="off">
-      ${MACROS.map(m=>row(m.k,m.n,m.u,macroKind(m),!!pin[m.k],t[m.k],+fmtQty(t[m.k]),usual,false)).join('')}
+      ${MACROS.map(m=>row(m.k,m.n,m.u,macroKind(m),!!pin[m.k]&&!(sp&&m.k!=='kcal'),t[m.k],+fmtQty(t[m.k]),sp&&m.k!=='kcal'?'Your split':usual,false)).join('')}
+      ${splitSettings(sp||splitOf(t),!!sp)}
       <div class="tgh">Micros on Today</div>
       ${on.map(c=>{const x=NUT[c.k]; return row(c.k,x.n,x.u,c.kind,c.v>0,c.v,REC[c.k]!=null?+fmtQty(REC[c.k]):'None',REC[c.k]!=null?'Daily value':'No usual target',true)}).join('')
         ||'<p class="small muted">None picked. Today shows only the macros.</p>'}
@@ -1952,23 +1985,99 @@ function targetsSettings(){
     </form>
   </section>`;
 }
+// The macro triangle: each corner is all of the calories from one macro, and the point's distance from the far side
+// is that macro's share. Drag the point (or type the percents) and the grams follow the calorie target above.
+const TRI={protein:[100,14],fat:[16,160],carbs:[184,160]};
+const triXY=sp=>[0,1].map(i=>MINI.reduce((a,[k])=>a+TRI[k][i]*sp[k]/100,0));
+function triSplit(x,y){
+  const [ax,ay]=TRI.protein,[bx,by]=TRI.fat,[cx,cy]=TRI.carbs, d=(by-cy)*(ax-cx)+(cx-bx)*(ay-cy);
+  let a=((by-cy)*(x-cx)+(cx-bx)*(y-cy))/d, b=((cy-ay)*(x-cx)+(ax-cx)*(y-cy))/d, c=1-a-b;
+  [a,b,c]=[a,b,c].map(v=>Math.max(0,v));
+  return cleanSplit({protein:a,fat:b,carbs:c});
+}
+function splitSettings(sp,on){
+  const grid=[20,40,60,80].map(q=>{const L=(k1,k2,k3)=>{const A={[k1]:q,[k2]:100-q,[k3]:0},B={[k1]:q,[k2]:0,[k3]:100-q},[x1,y1]=triXY(A),[x2,y2]=triXY(B); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`};
+    return L('protein','fat','carbs')+L('fat','carbs','protein')+L('carbs','protein','fat')}).join('');
+  const [px,py]=triXY(sp), pts=MINI.map(([k])=>TRI[k].join(',')).join(' ');
+  return `<div class="tgh">Macro split</div>
+    <label class="row small" style="gap:8px"><input type="checkbox" name="splitOn" id="splitOn"${on?' checked':''}> Share the calories out by percent</label>
+    <div id="splitBox" class="splitbox"${on?'':' hidden'}>
+      <svg id="splitTri" viewBox="0 0 200 182" role="slider" tabindex="0" aria-label="Macro split: drag to share calories between protein, fat and carbs" aria-valuetext="${splitText(sp)}">
+        <polygon points="${pts}" class="tri"/><g class="grid">${grid}</g>
+        <text x="100" y="8" class="p" text-anchor="middle">Protein</text><text x="12" y="176" class="f" text-anchor="start">Fat</text><text x="188" y="176" class="c" text-anchor="end">Carbs</text>
+        <circle id="splitDot" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="8"/></svg>
+      <div class="splitnums">${MINI.map(([k,c])=>`<label class="splitn"><span><i class="${c}"></i>${NUT[k].n}</span>
+        <span class="row" style="gap:4px;flex-wrap:nowrap"><input type="number" name="sp:${k}" inputmode="numeric" min="0" max="100" step="1" value="${sp[k]}" aria-label="${NUT[k].n} share of calories (%)">%</span>
+        <span class="small muted" data-splitg="${k}"></span></label>`).join('')}</div>
+      <p class="small muted">The grams follow your calorie target, at 4 kcal a gram of protein or carbs and 9 of fat, and keep these shares when a weekly check-in changes the budget. While on, the split stands in for the protein and fat from your goal.</p>
+    </div>`;
+}
+const splitText=sp=>MINI.map(([k])=>`${NUT[k].n} ${sp[k]}%`).join(', ');
+// The calories the split shares out: as typed above, or the usual budget
+function splitKcal(){const el=document.querySelector('#targetsForm [name="v:kcal"]'); return (el&&num(el.value))||(el&&num(el.placeholder))||targetsFor(todayKey()).kcal}
+function readSplit(){const f=document.getElementById('targetsForm'); return cleanSplit(Object.fromEntries(MINI.map(([k])=>[k,num(f.elements['sp:'+k].value)||0])))}
+// Puts a split on the triangle, the percents, the grams beside them and the macro rows, without re-rendering the form
+function showSplit(sp,from){
+  const f=document.getElementById('targetsForm'); if(!f||!sp) return;
+  const on=f.elements.splitOn.checked, kcal=splitKcal(), g=splitGrams(kcal,sp), [x,y]=triXY(sp), dot=document.getElementById('splitDot'), tri=document.getElementById('splitTri');
+  document.getElementById('splitBox').hidden=!on;
+  dot.setAttribute('cx',x.toFixed(1)); dot.setAttribute('cy',y.toFixed(1)); tri.setAttribute('aria-valuetext',splitText(sp));
+  MINI.forEach(([k])=>{
+    const inp=f.elements['sp:'+k]; if(inp!==from) inp.value=sp[k];
+    f.querySelector(`[data-splitg="${k}"]`).textContent=`${fmt(g[k])} g · ${fmt(g[k]*KCAL_PER_G[k])} kcal`;
+    const row=f.querySelector(`[data-splitrow="${k}"]`), v=row.querySelector('input[type=number]'), src=row.querySelector('.src');
+    v.disabled=on; if(on){v.value=''; v.placeholder=g[k]; src.textContent='Your split'; src.classList.remove('own')}
+    else if(src.textContent==='Your split'){v.placeholder=+fmtQty(targetsFor(todayKey())[k]); src.textContent=state.settings.goal?'From your goal':'Default'}
+  });
+}
+// One percent typed: the other two make room in proportion to what they had
+function splitTyped(k,v){
+  const cur=readSplit()||splitOf(targetsFor(todayKey())), x=Math.max(0,Math.min(100,Math.round(v)));
+  const others=MINI.map(([o])=>o).filter(o=>o!==k), rest=others.reduce((a,o)=>a+cur[o],0);
+  const sp={[k]:x}; others.forEach(o=>sp[o]=rest>0?(100-x)*cur[o]/rest:(100-x)/2);
+  return cleanSplit(sp);
+}
+let splitDrag=null;
+function splitAt(e){
+  const svg=document.getElementById('splitTri'), r=svg.getBoundingClientRect();
+  const sp=triSplit((e.clientX-r.left)*200/r.width,(e.clientY-r.top)*182/r.height); if(sp) showSplit(sp);
+}
+document.addEventListener('pointerdown',e=>{
+  const svg=e.target.closest&&e.target.closest('#splitTri'); if(!svg) return;
+  e.preventDefault(); splitDrag=e.pointerId; try{svg.setPointerCapture(e.pointerId)}catch(_){} splitAt(e);
+});
+document.addEventListener('pointermove',e=>{if(splitDrag===e.pointerId) splitAt(e)});
+['pointerup','pointercancel'].forEach(k=>document.addEventListener(k,e=>{if(splitDrag===e.pointerId) splitDrag=null}));
+// Arrow keys move a percent at a time: up/down for protein, left/right trade fat and carbs
+document.addEventListener('keydown',e=>{
+  if(!e.target.closest||!e.target.closest('#splitTri')) return;
+  const sp=readSplit(); if(!sp) return;
+  const mv={ArrowUp:['protein',1],ArrowDown:['protein',-1],ArrowLeft:['fat',1],ArrowRight:['carbs',1]}[e.key]; if(!mv) return;
+  e.preventDefault();
+  if(mv[0]==='protein') showSplit(splitTyped('protein',sp.protein+mv[1]));
+  else{const o=mv[0]==='fat'?'carbs':'fat'; if(sp[o]>0) showSplit({...sp,[mv[0]]:sp[mv[0]]+1,[o]:sp[o]-1})}
+});
 // Takes the targets as typed. A macro with a number is pinned; one cleared goes back to what the goal gives, and the
 // unpinned ones that depend on a change (fat on calories, carbs on everything) are worked out again.
 function readTargetsForm(){
   const form=document.getElementById('targetsForm'); if(!form) return false;
   const f=new FormData(form), td=todayKey(), cur=targetsFor(td), was=state.settings.macroPins, pins={}, kinds={}, next={...cur,from:td}, changed=new Set();
+  const wasSplit=state.settings.macroSplit, sp=f.get('splitOn')?readSplit():null;
+  state.settings.macroSplit=sp;
+  if(wasSplit&&!sp) MINI.forEach(([k])=>{if(!num(f.get('v:'+k))) changed.add(k)});
   for(const m of MACROS){
     const v=num(f.get('v:'+m.k)), kind=f.get('kind:'+m.k);
     if(kind&&kind!==m.kind) kinds[m.k]=kind;
     if(v>0){pins[m.k]=true; if(v!==cur[m.k]){next[m.k]=v; changed.add(m.k)}}
-    else if(was[m.k]) changed.add(m.k);
+    else if(was[m.k]||wasSplit&&!sp&&m.k!=='kcal') changed.add(m.k);
   }
   state.settings.macroPins=pins; state.settings.macroKinds=kinds;
   const g=state.settings.goal, kg=model().trendNow;
   if(!pins.kcal&&was.kcal) next.kcal=usualKcal();
-  if(!pins.protein&&was.protein) next.protein=g&&kg!=null?Math.round((g.proteinPerKg||1.8)*kg):DEFAULT_TARGETS.protein;
-  if(!pins.fat&&(was.fat||changed.has('kcal'))) next.fat=Math.round(next.kcal*(g&&g.fatPct||30)/100/9);
+  if(!pins.protein&&(was.protein||changed.has('protein'))) next.protein=g&&kg!=null?Math.round((g.proteinPerKg||1.8)*kg):DEFAULT_TARGETS.protein;
+  if(!pins.fat&&(was.fat||changed.has('fat')||changed.has('kcal'))) next.fat=Math.round(next.kcal*(g&&g.fatPct||30)/100/9);
   if(!pins.carbs&&(was.carbs||changed.size)) next.carbs=Math.max(0,Math.round((next.kcal-next.protein*4-next.fat*9)/4));
+  if(sp) Object.assign(next,splitGrams(next.kcal,sp));
   if(MACROS.some(m=>next[m.k]!==cur[m.k])) state.settings.targets=state.settings.targets.filter(x=>x.from!==td).concat(next);
   state.settings.micros=state.settings.micros.map(c=>{
     const v=num(f.get('v:'+c.k)), kind=f.get('kind:'+c.k)||c.kind;
@@ -2977,6 +3086,8 @@ document.addEventListener('submit',e=>{
 });
 document.addEventListener('input',e=>{
   const t=e.target;
+  if(t.form&&t.form.id==='targetsForm'&&(t.name==='v:kcal'||t.name.startsWith('sp:'))){
+    if(t.name==='v:kcal') showSplit(readSplit()); else if(t.value!=='') showSplit(splitTyped(t.name.slice(3),num(t.value)||0),t); return}
   if(t.form&&t.form.classList.contains('wform')&&(t.name==='weight'||t.name==='fat')){weighWas(t); return}
   if(t.name&&t.name.startsWith('m_')&&t.form&&t.form.id==='measureForm'){
     const was=t.form.querySelector(`[data-was="${t.name.slice(2)}"]`), base=num(t.dataset.base||t.defaultValue), x=num(t.value);
@@ -3087,6 +3198,8 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape') return; if(sheet) c
 document.addEventListener('click',e=>{if(e.target.id==='scanVideo') scanFocusAt(e)});
 document.addEventListener('change',async e=>{
   const t=e.target;
+  if(t.id==='splitOn'){showSplit(readSplit()); return}
+  if(t.name&&t.name.startsWith('sp:')&&t.form){showSplit(readSplit()); return}
   if(t.dataset.photo&&t.files&&t.files[0]){const file=t.files[0]; t.value=''; if(t.dataset.photo==='barcode') barcodeFromPhoto(file); else fillFromLabel(file); return}
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
   if(t.id==='addDay'&&t.value){day=t.value; adderWhenChanged(); return}
@@ -3136,6 +3249,7 @@ function render(){
   m.innerHTML=v(); m.classList.toggle('has-fab',tab==='today'&&!adder);
   if(tab==='trends') drawCharts();
   if(tab==='body') drawLeaders();
+  if(tab==='settings') showSplit(readSplit());
   refreshAdder();
 }
 
