@@ -268,6 +268,29 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .tile .tadd{flex:none;width:44px;border:0;border-left:1px solid var(--line);background:var(--sunk);color:var(--accent);font-size:22px;font-weight:600;line-height:1}
 .tile .tadd:active{background:var(--accent);color:var(--accent-ink)}
 .tile:hover .tn{color:var(--accent)}
+/* Frequent foods: a column beside Today on a wide screen (folded to a thin tab), a two-row strip above the list on a phone */
+.todaylay{display:flex;flex-direction:column;gap:16px}
+.todaylay.withfreq>.stack{display:contents}
+.todaylay .late,.todaylay .micros{order:2}
+.freq{order:1;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px 10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.freq.shut{padding-bottom:8px}
+.freqhead{display:flex;align-items:center;gap:8px;background:none;border:0;padding:2px 0;color:var(--ink);text-align:left;width:100%;min-height:30px}
+.freqhead .chev{margin-left:auto;color:var(--muted);font-size:13px}
+.freq .tiles{grid-template-columns:none;grid-template-rows:repeat(2,auto);grid-auto-flow:column;grid-auto-columns:minmax(150px,46%);overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;padding-bottom:2px}
+.freq .tile{background:var(--bg)}
+@media (min-width:1000px){
+  .todaylay.withfreq{display:grid;grid-template-columns:minmax(0,1fr) 272px;align-items:start}
+  .todaylay.withfreq.freqshut{grid-template-columns:minmax(0,1fr) 44px}
+  .todaylay.withfreq>.stack{display:flex}
+  .freq{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow-y:auto}
+  .freq .tiles{grid-template-rows:none;grid-auto-flow:row;grid-template-columns:minmax(0,1fr);overflow-x:visible}
+  .freq.shut{padding:10px 0;align-items:center}
+  .freq.shut .freqhead{flex-direction:column;width:auto;gap:10px}
+  .freq.shut .freqhead h3{writing-mode:vertical-rl}
+  .freq.shut .freqhead .chev{margin:0;order:-1}
+  .freq.shut .freqhead .chev::before{content:'◂';}
+  .freq.shut .freqhead .chev{font-size:0}.freq.shut .freqhead .chev::before{font-size:13px}
+}
 .food.slim{grid-template-columns:minmax(0,1fr) auto;padding:7px 2px}
 .food.slim .fn{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .food.slim .fq{font-size:12px;color:var(--muted);white-space:nowrap}
@@ -1327,9 +1350,20 @@ function microsPanel(){
 const entryAmt=e=>e.qty==null?'':unitKind(e.unit)==='serving'?`${fmtQty(e.qty)} × ${esc(e.unitLabel)}`:`${fmtQty(e.qty)} ${esc(e.unitLabel)}`;
 // The grams behind a row's mini chart, shown when the chart is tapped
 const macroGrams=get=>`P ${fmt(get('protein'))} g · F ${fmt(get('fat'))} g · C ${fmt(get('carbs'))} g${microsMeta(get)}`;
+// Frequent foods beside Today on a wide screen, a strip above the day's list on a phone: one tap adds the usual portion
+// to the day showing. Folding it away is kept in settings, so it stays folded on every device.
+function freqPanel(){
+  const sug=building?[]:suggestions(10);
+  if(!sug.length) return '';
+  const shut=!!state.settings.freqShut;
+  return `<aside class="freq${shut?' shut':''}" aria-label="Frequent foods">
+    <button class="freqhead" data-act="freqToggle" aria-expanded="${!shut}"><h3>Frequent foods</h3><span class="muted small">${shut?sug.length:'for now'}</span><span class="chev" aria-hidden="true">${shut?'▸':'▾'}</span></button>
+    ${shut?'':`<div class="tiles">${sug.map(suggestionTile).join('')}</div>`}
+  </aside>`;
+}
 function viewToday(){
-  const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), w=weighinOn(day);
-  return `<div class="stack">
+  const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), w=weighinOn(day), fq=freqPanel();
+  return `<div class="todaylay${fq?' withfreq':''}${state.settings.freqShut?' freqshut':''}"><div class="stack">
     <div class="daybar">
       <h2>${esc(dayLabel(day))}</h2>
       <button class="btn nav-btn" data-day="-1" aria-label="Previous day">‹</button>
@@ -1340,19 +1374,19 @@ function viewToday(){
     ${day===todayKey()&&checkinDue()?checkinBanner():''}
     <section class="budget" aria-label="Daily budget">${MACROS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
     ${microsPanel()}
-    <section class="panel stack">
+    <section class="panel stack late">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
         <div class="row">${list.length?sortPicker():''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
       ${list.length?`${miniKey()}<div class="entries">${entriesHtml(list)}</div><p class="small muted">Tap a food to change its amount or move it to another day or time. Tap its chart for the grams.</p>`
         :`<p class="empty">Nothing logged yet.<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button></p>`}
     </section>
-    <section class="panel stack">
+    <section class="panel stack late">
       <h3>Weigh-in</h3>
       ${w?`<p>${fmtW(w.kg)} ${wUnit()}${w.fat!=null?` · ${fmt(w.fat,1)}% body fat`:''} <button class="btn sm ghost" data-goto="weight">Edit</button></p>`
         :weighForm(day,'todayWeigh')}
     </section>
     ${adder?'':'<button class="btn primary fab" data-act="addFood" aria-label="Add food">+ Add food</button>'}
-  </div>`;
+  </div>${fq}</div>`;
 }
 /* ---------------- Add food overlay ---------------- */
 // Search, suggestions, scanning and recipes, kept apart from the day's report. Logging leaves it open for the next food.
@@ -3125,6 +3159,7 @@ document.addEventListener('click',async e=>{
   if(d.rmmicro){readTargetsForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
   if(d.day){day=addDays(day,+d.day);render();return}
   if(d.act==='goToday'){day=todayKey();render();return}
+  if(d.act==='freqToggle'){state.settings.freqShut=!state.settings.freqShut; touchSettings(); render(); return}
   if(d.addday){day=addDays(day,+d.addday); adderWhenChanged(); return}
   if(d.act==='addNow'){day=todayKey(); addTime=null; adderWhenChanged(); return}
   if(d.pickfood){openSheet({type:'food',food:foodById(d.pickfood)});return}
