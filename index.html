@@ -878,9 +878,10 @@ function suggestions(n=10){
   }
   return out.sort((a,b)=>b.score-a.score).slice(0,n);
 }
-// Common meals: a food or recipe logged on more than 70% of the last 14 days you logged anything (today not counted,
-// at least 4 such days), in the order you usually have them. Each carries the hour you usually have it.
-const COMMON_DAYS=14, COMMON_SHARE=0.7;
+// Common meals: a food or recipe logged on more than 70% of the days you logged anything in the last 14 (today not
+// counted), so someone newer is measured over the days they've used the app, from 3 such days on. They come in the
+// order you usually have them, each with the hour you usually have it.
+const COMMON_DAYS=14, COMMON_SHARE=0.7, COMMON_MIN=3;
 function commonMeals(){
   const t=todayKey(), from=addDays(t,-COMMON_DAYS), seen=new Map(), active=new Set();
   for(const e of state.entries){
@@ -890,7 +891,7 @@ function commonMeals(){
     if(x.days.has(e.date)) continue; x.days.add(e.date);
     const ts=e.ts&&new Date(e.ts); if(ts&&!isNaN(ts)&&dkey(ts)===e.date) x.hours.push(ts.getHours()+ts.getMinutes()/60);
   }
-  if(active.size<4) return [];
+  if(active.size<COMMON_MIN) return [];
   const out=[];
   for(const [key,x] of seen){
     if(x.days.size/active.size<=COMMON_SHARE) continue;
