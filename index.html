@@ -423,6 +423,8 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .chart .tick.r{fill:var(--faint)}
 .chart .tick.c-a{fill:var(--c-a)} .chart .tick.c-b{fill:var(--c-b)} .chart .tick.c-c{fill:var(--c-c)} .chart .tick.c-d{fill:var(--c-d)} .chart .tick.c-e{fill:var(--c-e)} .chart .tick.c-f{fill:var(--c-f)} .chart .tick.c-g{fill:var(--c-g)}
 .chart .dot.c-b{fill:var(--c-b)} .chart .dot.c-c{fill:var(--c-c)} .chart .dot.c-d{fill:var(--c-d)} .chart .dot.c-e{fill:var(--c-e)} .chart .dot.c-f{fill:var(--c-f)} .chart .dot.c-g{fill:var(--c-g)}
+.chart .zero{stroke:var(--muted);stroke-width:1}
+.key.delta{width:10px;height:10px;border:0;border-radius:2px;background:linear-gradient(var(--c-e) 50%,var(--c-c) 50%)}
 .chart .ln.thin{stroke-width:1.25;opacity:.55}
 .key.dots.c-b{background:var(--c-b)} .key.dots.c-c{background:var(--c-c)} .key.dots.c-d{background:var(--c-d)} .key.dots.c-e{background:var(--c-e)} .key.dots.c-f{background:var(--c-f)} .key.dots.c-g{background:var(--c-g)}
 .legend.toggles{gap:6px}
@@ -2336,6 +2338,7 @@ function chartRows(){
   const sel=M.days.filter(r=>r.date>=from&&r.date<=to);
   const weekly=sel.length>120;
   const row=r=>{const tg=targetsFor(r.date); return {date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,tdee:r.tdee,goal:setpointOn(r.date),
+    net:r.intake&&r.tdee!=null?r.intake.kcal-r.tdee:null,
     ...Object.fromEntries(METRICS.map(m=>[m.k,r.intake?r.intake[m.k]:null])),...Object.fromEntries(METRICS.map(m=>['t_'+m.k,tg[m.k]]))}};
   if(!weekly) return {rows:sel.map(row),weekly};
   const out=[];
@@ -2381,20 +2384,23 @@ function drawChart(el){
   let lo=vals.length?Math.min(...vals):0, hi=vals.length?Math.max(...vals):1;
   if(spec.zero) lo=Math.min(0,lo); else {const pad=(hi-lo)*0.08||1; lo-=pad; hi+=pad}
   const ticks=niceTicks(lo,hi); lo=spec.zero?0:ticks[0]; hi=ticks[ticks.length-1];
-  const bw=(W-pl-pr)/n, x=i=>pl+(i+0.5)*bw, y=v=>pt+(H-pt-pb)*(1-(v-lo)/(hi-lo||1)), yl=y;
+  // spec.bands {left:[from,to],<axis>:[from,to]}: the share of the height, from the bottom, a scale draws in, so lines and bars don't overlap
+  const band=k=>(spec.bands&&spec.bands[k])||[0,1], at=(f,[b0,b1])=>pt+(H-pt-pb)*(1-(b0+f*(b1-b0)));
+  const bw=(W-pl-pr)/n, x=i=>pl+(i+0.5)*bw, y=v=>at((v-lo)/(hi-lo||1),band('left')), yl=y;
   let g=ticks.filter(v=>v>=lo&&v<=hi).map(v=>`<line class="grid" x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}"/>${vals.length?`<text class="tick" x="${pl-6}" y="${y(v)+4}" text-anchor="end">${fmt(v,hi-lo<5?1:0)}</text>`:''}`).join('');
   if(spec.units&&vals.length) g+=`<text class="tick" x="${pl-6}" y="${pt-8}" text-anchor="end">${esc(spec.unit)}</text>`;
   const every=Math.max(1,Math.ceil(n/Math.max(2,Math.floor((W-pl)/70)))), lab=spec.weekly||n>120?monthYear:shortDate;
   for(let i=0;i<n;i+=every) g+=`<text class="tick" x="${x(i)}" y="${H-6}" text-anchor="middle">${esc(lab(rows[i].date))}</text>`;
   const ys={};
   axes.forEach((ax,j)=>{
-    let a=Math.min(...ax.vals), b=Math.max(...ax.vals); const p=(b-a)*0.08||1; const rt=spec.zero?niceTicks(0,b):niceTicks(a-p,b+p); a=rt[0]; b=rt[rt.length-1];
-    const ry=v=>pt+(H-pt-pb)*(1-(v-a)/(b-a||1)); ax.ss.forEach(s=>ys[s.k]=ry);
+    let a=Math.min(...ax.vals), b=Math.max(...ax.vals); if(ax.ss.some(s=>s.mark==='delta')){a=Math.min(a,0); b=Math.max(b,0)} const p=(b-a)*0.08||1; const nt=band(ax.ss[0].axis)[1]-band(ax.ss[0].axis)[0]<0.5?2:4, rt=spec.zero?niceTicks(0,b,nt):niceTicks(a-p,b+p,nt); a=rt[0]; b=rt[rt.length-1];
+    const ry=v=>at((v-a)/(b-a||1),band(ax.ss[0].axis)); ax.ss.forEach(s=>ys[s.k]=ry);
+    if(ax.ss.some(s=>s.mark==='delta')) g+=`<line class="zero" x1="${pl}" x2="${W-pr}" y1="${ry(0)}" y2="${ry(0)}"/>`;
     if(j>=named) return;
     // one scale: muted, as before; several: each in its series' color, with its unit on top
     const st=rt[1]-rt[0], rdp=st>=1?0:Math.abs(st*10-Math.round(st*10))<1e-9?1:2, cls=spec.units?'c-'+ax.ss[0].color:'r', x0=W-pr+6+j*AW;
     g+=rt.map(v=>`<text class="tick ${cls}" x="${x0}" y="${ry(v)+4}" text-anchor="start">${fmt(v,rdp)}</text>`).join('');
-    if(spec.units) g+=`<text class="tick ${cls}" x="${x0}" y="${pt-8}" text-anchor="start">${esc(ax.ss[0].unit||'')}</text>`;
+    if(spec.units) g+=`<text class="tick ${cls}" x="${x0}" y="${ry(b)-(ry(b)>pt+1?14:8)}" text-anchor="start">${esc(ax.ss[0].unit||'')}</text>`;
   });
   for(const s of spec.series){
     const pts=rows.map((r,i)=>[i,val(s,r)]), y=ys[s.k]||yl;
@@ -2402,6 +2408,10 @@ function drawChart(el){
       const w=Math.max(1,Math.min(16,bw-2));
       g+=pts.filter(p=>p[1]!=null&&p[1]>0).map(([i,v])=>{const b0=stacks.slice(0,stacks.indexOf(s)).reduce((a,t)=>a+(val(t,rows[i])||0),0);
         return `<rect class="bar c-${s.color}" x="${x(i)-w/2}" y="${y(b0+v)}" width="${w}" height="${Math.max(0,y(b0)-y(b0+v))}"/>`}).join('');
+    }else if(s.mark==='delta'){
+      // above or below zero: over expenditure in one color, under it in the other
+      const w=Math.max(1,Math.min(16,bw-2));
+      g+=pts.filter(p=>p[1]!=null).map(([i,v])=>`<rect class="bar ${v>0?'c-e':'c-c'}" x="${x(i)-w/2}" y="${Math.min(y(0),y(v))}" width="${w}" height="${Math.abs(y(v)-y(0))}"/>`).join('');
     }else if(s.mark==='bar'){
       const w=Math.max(1,Math.min(16,bw-2)), r0=Math.min(2,w/2);
       g+=pts.filter(p=>p[1]!=null).map(([i,v])=>{const top=y(Math.max(v,lo)), h=Math.max(0,y(lo)-top); return `<path class="bar c-${s.color}" d="M${x(i)-w/2},${top+h}V${top+r0}q0,-${r0} ${r0},-${r0}h${w-2*r0}q${r0},0 ${r0},${r0}V${top+h}Z"/>`}).join('');
@@ -2433,7 +2443,7 @@ function chartHover(el,clientX){
   for(const s of spec.series){
     const v=r[s.tipK||s.k]; const row=document.createElement('div'); row.className='tip-r';
     const key=document.createElement('i'); key.className=`key ${s.mark==='dotline'?'dots':s.mark} c-${s.color}`;
-    const b=document.createElement('b'); b.textContent=v==null?'–':`${fmt(s.conv?s.conv(v):v,s.dp??spec.dp)} ${s.unit||spec.unit}`;
+    const b=document.createElement('b'); b.textContent=v==null?'–':`${s.mark==='delta'&&v>0?'+':''}${fmt(s.conv?s.conv(v):v,s.dp??spec.dp)} ${s.unit||spec.unit}`;
     const nm=document.createElement('span'); nm.textContent=s.name;
     row.append(key,b,nm); tip.append(row);
   }
@@ -2494,8 +2504,12 @@ function viewTrends(){
       ...(state.settings.goal?[{k:'goal',name:'Goal path',mark:'dash',color:'b',conv:wconv}]:[]),
       ...(rows.some(r=>r.bf!=null)?[{k:'bf',name:'Body fat',mark:'dotline',color:'d',axis:'bf',unit:'%'}]:[]),
       ],{h:240,toggle:true,units:true})}
-    ${mk('macros','Calories, expenditure & macros','g',0,[{k:'protein',name:'Protein (g)',mark:'stack',color:'b'},{k:'fat',name:'Fat (g)',mark:'stack',color:'e'},{k:'carbs',name:'Carbs (g)',mark:'stack',color:'c'},
-      {k:'kcal',name:'Calories',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'tdee',name:'Expenditure',mark:'line',color:'d',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240,toggle:true,units:true})}`
+    ${mk('net','Calories vs expenditure','kcal',0,[{k:'kcal',name:'Calories',mark:'line',color:'a'},{k:'tdee',name:'Expenditure',mark:'line',color:'d'},
+      {k:'net',name:'Surplus / deficit',mark:'delta',color:'e',axis:'net',unit:'kcal'}],{h:260,toggle:true,units:true,bands:{left:[0.45,1],net:[0,0.38]},
+      foot:(()=>{const v=rows.filter(r=>r.net!=null); if(!v.length) return ''; const avg=v.reduce((a,r)=>a+r.net,0)/v.length;
+        return `<p class="small muted">Average ${avg>0?'surplus':'deficit'} over this range: <b>${fmt(Math.abs(avg))} kcal/day</b>, about ${fmtW(Math.abs(avg)*v.length*(weekly?7:1)/KCAL_PER_KG)} ${wUnit()} ${avg>0?'gained':'lost'} in all.</p>`})()})}
+    ${mk('macros','Calories & macros','g',0,[{k:'protein',name:'Protein (g)',mark:'stack',color:'b'},{k:'fat',name:'Fat (g)',mark:'stack',color:'e'},{k:'carbs',name:'Carbs (g)',mark:'stack',color:'c'},
+      {k:'kcal',name:'Calories',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240,toggle:true,units:true})}`
     :mc?'':`<p class="empty">Log food and weigh-ins to see trends here.</p>`}
     ${mc}
   </div>`;
