@@ -1,6 +1,6 @@
 // Keeps the app opening without a connection. The page itself is fetched
 // network-first, so a new version shows up as soon as the phone is online.
-const CACHE='nh-v21';
+const CACHE='nh-v22';
 const SHELL=['./','manifest.webmanifest','icons/icon-192.png','icons/icon-512.png'];
 
 self.addEventListener('install',e=>{
