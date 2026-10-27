@@ -115,7 +115,7 @@ textarea{resize:vertical}
 :root{--accent:#c2410c; --accent-ink:#ffffff; --accent-soft:#fde4d6; --ok:#11897a; --over:#b3261e}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--accent:#fb8a4c; --accent-ink:#1f0c03; --accent-soft:#3d2014; --ok:#3cc3ad; --over:#ff8a80}}
 :root[data-theme="dark"]{--accent:#fb8a4c; --accent-ink:#1f0c03; --accent-soft:#3d2014; --ok:#3cc3ad; --over:#ff8a80}
-/* Layout: sticky header with tabs over one working column. Today shows the day's budget, entries and weigh-in.
+/* Layout: sticky header with tabs over one working column. Today shows the day's budget and entries; weigh-ins live on Weight.
    Adding food is its own overlay (full screen on phones, a centred window on wide screens), opened from the Add food button.
    Picking a food, scanning, quick add and food editing open in the side sheet (bottom sheet on phones) above it. */
 .fab{position:fixed;z-index:25;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 16px);
@@ -1378,7 +1378,7 @@ function freqPanel(){
   </aside>`;
 }
 function viewToday(){
-  const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), w=weighinOn(day), fq=freqPanel();
+  const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), fq=freqPanel();
   return `<div class="todaylay${fq?' withfreq':''}${state.settings.freqShut?' freqshut':''}"><div class="stack">
     <div class="daybar">
       <h2>${esc(dayLabel(day))}</h2>
@@ -1395,11 +1395,6 @@ function viewToday(){
         <div class="row">${list.length?sortPicker():''}${list.length?'<button class="btn sm ghost" data-act="copyDay">Copy</button>':''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
       ${list.length?`${miniKey()}<div class="entries">${entriesHtml(list)}</div><p class="small muted">Tap a food to change its amount or move it to another day or time. Tap its chart for the grams.</p>`
         :`<p class="empty">Nothing logged yet.<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button></p>`}
-    </section>
-    <section class="panel stack late">
-      <h3>Weigh-in</h3>
-      ${w?`<p>${fmtW(w.kg)} ${wUnit()}${w.fat!=null?` · ${fmt(w.fat,1)}% body fat`:''} <button class="btn sm ghost" data-goto="weight">Edit</button></p>`
-        :weighForm(day,'todayWeigh')}
     </section>
     ${adder?'':'<button class="btn primary fab" data-act="addFood" aria-label="Add food">+ Add food</button>'}
   </div>${fq}</div>`;
@@ -3204,7 +3199,7 @@ document.addEventListener('submit',e=>{
     if(sheet.then==='log') openSheet({type:'food',food:rec,entryId:sheet.entryId}); else closeSheet();
     render(); return}
   if(id==='barcodeForm'){gotBarcode(f.get('code')); return}
-  if(id==='todayWeigh'||id==='weighForm'){if(saveWeighin(f)) render(); return}
+  if(id==='weighForm'){if(saveWeighin(f)) render(); return}
   if(id==='measureForm'){if(saveMeasures(e.target)) render(); return}
   if(id==='targetsForm'){readTargetsForm(); touchSettings(); toast('Targets saved'); render(); return}
   if(id==='goalForm'){
