@@ -2385,9 +2385,10 @@ function drawChart(el){
   if(spec.zero) lo=Math.min(0,lo); else {const pad=(hi-lo)*0.08||1; lo-=pad; hi+=pad}
   const ticks=niceTicks(lo,hi); lo=spec.zero?0:ticks[0]; hi=ticks[ticks.length-1];
   // spec.bands {left:[from,to],<axis>:[from,to]}: the share of the height, from the bottom, a scale draws in, so lines and bars don't overlap
-  const band=k=>(spec.bands&&spec.bands[k])||[0,1], at=(f,[b0,b1])=>pt+(H-pt-pb)*(1-(b0+f*(b1-b0)));
+  // only while both sides show: with the lines or the bars switched off, the rest take the full height
+  const band=k=>(spec.bands&&vals.length&&axes.length&&spec.bands[k])||[0,1], at=(f,[b0,b1])=>pt+(H-pt-pb)*(1-(b0+f*(b1-b0)));
   const bw=(W-pl-pr)/n, x=i=>pl+(i+0.5)*bw, y=v=>at((v-lo)/(hi-lo||1),band('left')), yl=y;
-  let g=ticks.filter(v=>v>=lo&&v<=hi).map(v=>`<line class="grid" x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}"/>${vals.length?`<text class="tick" x="${pl-6}" y="${y(v)+4}" text-anchor="end">${fmt(v,hi-lo<5?1:0)}</text>`:''}`).join('');
+  let g=(vals.length?ticks:[]).filter(v=>v>=lo&&v<=hi).map(v=>`<line class="grid" x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}"/>${vals.length?`<text class="tick" x="${pl-6}" y="${y(v)+4}" text-anchor="end">${fmt(v,hi-lo<5?1:0)}</text>`:''}`).join('');
   if(spec.units&&vals.length) g+=`<text class="tick" x="${pl-6}" y="${pt-8}" text-anchor="end">${esc(spec.unit)}</text>`;
   const every=Math.max(1,Math.ceil(n/Math.max(2,Math.floor((W-pl)/70)))), lab=spec.weekly||n>120?monthYear:shortDate;
   for(let i=0;i<n;i+=every) g+=`<text class="tick" x="${x(i)}" y="${H-6}" text-anchor="middle">${esc(lab(rows[i].date))}</text>`;
@@ -2395,6 +2396,7 @@ function drawChart(el){
   axes.forEach((ax,j)=>{
     let a=Math.min(...ax.vals), b=Math.max(...ax.vals); if(ax.ss.some(s=>s.mark==='delta')){a=Math.min(a,0); b=Math.max(b,0)} const p=(b-a)*0.08||1; const nt=band(ax.ss[0].axis)[1]-band(ax.ss[0].axis)[0]<0.5?2:4, rt=spec.zero?niceTicks(0,b,nt):niceTicks(a-p,b+p,nt); a=rt[0]; b=rt[rt.length-1];
     const ry=v=>at((v-a)/(b-a||1),band(ax.ss[0].axis)); ax.ss.forEach(s=>ys[s.k]=ry);
+    if(!vals.length&&!j) g+=rt.map(v=>`<line class="grid" x1="${pl}" x2="${W-pr}" y1="${ry(v)}" y2="${ry(v)}"/>`).join('');   // nothing on the left: this scale's grid
     if(ax.ss.some(s=>s.mark==='delta')) g+=`<line class="zero" x1="${pl}" x2="${W-pr}" y1="${ry(0)}" y2="${ry(0)}"/>`;
     if(j>=named) return;
     // one scale: muted, as before; several: each in its series' color, with its unit on top
