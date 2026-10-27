@@ -1826,6 +1826,7 @@ function viewWeight(){
   const wk=M.byDate[addDays(todayKey(),-7)], ch=M.trendNow!=null&&wk&&wk.trend!=null?M.trendNow-wk.trend:null;
   return `<div class="stack">
     <h2>Weight</h2>
+    <section class="panel stack"><h3>Add a weigh-in</h3>${weighForm(todayKey(),'weighForm')}</section>
     <section class="stats">
       <div class="stat panel"><b>${fmtW(M.trendNow)}</b><span>Trend (${wUnit()})</span></div>
       <div class="stat panel"><b>${ch==null?'–':(ch>0?'+':'')+toDisp(ch).toFixed(1)}</b><span>Trend, last 7 days</span></div>
@@ -1833,7 +1834,6 @@ function viewWeight(){
       <div class="stat panel"><b>${last&&last.fat!=null?fmt(last.fat,1):'–'}</b><span>Body fat %</span></div>
     </section>
     ${goalPanel()}
-    <section class="panel stack"><h3>Add a weigh-in</h3>${weighForm(todayKey(),'weighForm')}</section>
     <section class="panel stack"><h3>History</h3>
       ${ws.length?`<div>${ws.slice(0,60).map(w=>`<div class="wrow"><span class="d">${esc(dayLabel(w.date))}</span>
         <span class="v">${fmtW(w.kg)} ${wUnit()}${w.fat!=null?` · ${fmt(w.fat,1)}%`:''}</span><span></span>
