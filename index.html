@@ -341,8 +341,10 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .wform label.field .was b{font-weight:600;color:var(--accent)}
 .wform{align-items:start}
 .wform>.row{align-self:center}
-.stepper{display:flex;gap:6px;align-items:center}
-.stepper input{flex:1 1 auto;width:auto;text-align:center}
+.stepper{display:flex;gap:4px;align-items:center}
+.stepper input{flex:1 1 auto;width:0;min-width:3.6em;padding-left:4px;padding-right:4px;text-align:center;-moz-appearance:textfield;appearance:textfield}
+.stepper input::-webkit-inner-spin-button,.stepper input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+@media (max-width:374px){.wform label.field{grid-column:1/-1}}   /* small phones: weight and body fat each get a full row */
 .stepper .btn{flex:none;width:38px;height:38px;padding:0;font-size:20px;line-height:1;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-user-select:none}
 .mtbl td,.mtbl th{text-align:right}.mtbl td:first-child,.mtbl th:first-child{text-align:left}
 .bodymap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,200px) minmax(0,1fr);gap:0 14px;align-items:start}
