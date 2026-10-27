@@ -366,6 +366,9 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .sites label{display:inline-flex;gap:6px;align-items:center}
 .picks label{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
 .picks label:first-child{border-top:0}
+.picks .phead{font-weight:600}
+.picks label.sub{padding-left:22px}
+.copyto{align-items:center}
 .ritem{display:grid;grid-template-columns:minmax(0,1fr) 80px minmax(0,110px) auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
 .ritem:first-child{border-top:0}
 .ritem input,.ritem select{width:100%;min-width:0}
@@ -1376,7 +1379,7 @@ function viewToday(){
     ${microsPanel()}
     <section class="panel stack late">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
-        <div class="row">${list.length?sortPicker():''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
+        <div class="row">${list.length?sortPicker():''}${list.length?'<button class="btn sm ghost" data-act="copyDay">Copy</button>':''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
       ${list.length?`${miniKey()}<div class="entries">${entriesHtml(list)}</div><p class="small muted">Tap a food to change its amount or move it to another day or time. Tap its chart for the grams.</p>`
         :`<p class="empty">Nothing logged yet.<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button></p>`}
     </section>
@@ -1612,6 +1615,62 @@ function doMove(date,time){
   const t=time&&entryTime(first);
   toast(`Moved ${what} to ${dayLabel(date).replace(/^(Today|Yesterday|Tomorrow)$/,s=>s.toLowerCase())}${t?' at '+clock(t):''}`);
   closeSheet(); render();
+}
+// Copying the day's foods: to another day as new logs, or as text. They're picked as units (a food, or a recipe log
+// as a whole) under the parts of the day, so a whole meal can be ticked at once.
+function copySections(list){
+  const units=entryUnits(list), h=dayParts(), parts=h.map(()=>[]), unknown=[];
+  for(const u of units){const t=entryTime(u.items[0]); t?parts[partOf(t.getHours()+t.getMinutes()/60,h)].push(u):unknown.push(u)}
+  const secs=parts.map((us,i)=>({name:partName(h,i),units:us})).concat([{name:'Time not known',units:unknown}]).filter(s=>s.units.length);
+  if(secs.length===1&&!parts.some(p=>p.length)) secs[0].name='';
+  return secs;
+}
+const unitIds=u=>u.items.map(x=>x.id).join(',');
+const unitName=u=>u.items[0].recipe?u.items[0].recipe.name:u.items[0].name;
+const unitAmt=u=>{const e=u.items[0]; if(e.recipe) return servingsText(e.recipe.servings); if(e.qty==null) return '';
+  return unitKind(e.unit)==='serving'?`${fmtQty(e.qty)} × ${e.unitLabel}`:`${fmtQty(e.qty)} ${e.unitLabel}`};
+function sheetCopyDay(){
+  const secs=copySections(entriesFor(day)), from=day===todayKey()?'today':dayLabel(day);
+  if(!secs.length) return '<h2>Nothing to copy</h2><p class="small muted">No foods are logged on this day.</p>';
+  return `<h2>Copy foods</h2>
+    <p class="small muted">From ${esc(from)}. Each copy keeps its time of day, and can be changed or removed on its own afterwards.</p>
+    <form class="stack" id="copyDayForm" autocomplete="off">
+      <div class="row copyto"><span>To</span>
+        <button class="btn nav-btn" type="button" data-copyby="-1" aria-label="Day before">‹</button>
+        <input type="date" name="to" id="copyTo" value="${sheet.to}" required aria-label="Day to copy to">
+        <button class="btn nav-btn" type="button" data-copyby="1" aria-label="Day after">›</button>
+        <span class="small muted" id="copyToName">${esc(dayLabel(sheet.to))}</span></div>
+      <div class="picks">${secs.map((s,i)=>`${s.name?`<label class="phead"><input type="checkbox" data-copypart="${i}" checked><span>${esc(s.name)}</span><span class="small mono">${fmt(s.units.reduce((a,u)=>a+unitSum(u,'kcal'),0))} kcal</span></label>`:''}
+        ${s.units.map(u=>`<label${s.name?' class="sub"':''}><input type="checkbox" name="pick" value="${unitIds(u)}" data-part="${i}" checked><span>${esc(unitName(u))}<br><span class="small muted">${esc(unitAmt(u))}</span></span><span class="small mono">${fmt(unitSum(u,'kcal'))} kcal</span></label>`).join('')}`).join('')}</div>
+      <div class="row"><button class="btn primary big" type="submit">Copy</button><button class="btn" type="button" data-act="copyText">Copy as text</button></div>
+    </form>`;
+}
+// New logs on another day, each at the same time of day; a recipe log stays together as a new log of that recipe
+function copyEntries(ids,date){
+  const groups=new Map();
+  const list=ids.map(id=>state.entries.find(x=>x.id===id)).filter(Boolean).sort((a,b)=>(a.ts||'')<(b.ts||'')?-1:1);
+  list.forEach(e=>{
+    const t=entryTime(e), c={...e,id:'e'+uid6(),date}; delete c.u;
+    if(t){const d=parseDay(date); d.setHours(t.getHours(),t.getMinutes(),t.getSeconds(),t.getMilliseconds()); c.ts=d.toISOString()}
+    else if(c.ts&&dkey(new Date(c.ts))===date) delete c.ts;   // a time not known stays not known
+    if(e.recipe){let g=groups.get(e.recipe.group); if(!g){groups.set(e.recipe.group,g='g'+uid6()); const r=recipeById(e.recipe.id);
+      if(r){Object.assign(r,{lastUsed:nowIso(),uses:(r.uses||0)+1}); putRecord('recipes',r)}} c.recipe={...e.recipe,group:g}}
+    else{const f=e.foodId&&!e.imported&&foodById(e.foodId); if(f){Object.assign(f,{lastUsed:nowIso(),uses:(f.uses||0)+1}); putRecord('foods',f)}}
+    putRecord('entries',c);
+  });
+  return list.length;
+}
+const copyPicks=()=>{const f=document.getElementById('copyDayForm'); return f?new FormData(f).getAll('pick').flatMap(v=>v.split(',')):[]};
+// The picked foods as plain lines under their parts of the day, with the totals, to paste anywhere
+function dayText(ids){
+  const pick=new Set(ids), secs=copySections(entriesFor(day).filter(e=>pick.has(e.id)));
+  const all=secs.flatMap(s=>s.units), sum=k=>all.reduce((a,u)=>a+unitSum(u,k),0);
+  const head=`${dayLabel(day)}: ${fmt(sum('kcal'))} kcal · P ${fmt(sum('protein'))} g · F ${fmt(sum('fat'))} g · C ${fmt(sum('carbs'))} g`;
+  return [head,...secs.flatMap(s=>[...(s.name?['',s.name]:['']),...s.units.map(u=>`- ${unitName(u)}${unitAmt(u)?', '+unitAmt(u):''}: ${fmt(unitSum(u,'kcal'))} kcal`)])].join('\n');
+}
+async function copyDayText(){
+  const ids=copyPicks(); if(!ids.length){toast('Pick at least one food.');return}
+  try{await navigator.clipboard.writeText(dayText(ids)); toast('Copied to the clipboard')}catch(_){toast('The clipboard isn’t available here')}
 }
 function checkinBanner(){
   const p=proposal(); if(!p) return '';
@@ -2645,7 +2704,7 @@ function renderSheet(){
   const h=document.getElementById('sheetHost');
   if(!sheet){h.innerHTML='';return}
   const body={food:sheetFood,quick:sheetQuick,editFood:sheetEditFood,scan:sheetScan,goal:sheetGoal,import:sheetImport,
-    recipe:sheetRecipe,editRecipe:sheetEditRecipe,saveRecipe:sheetSaveRecipe,move:sheetMove}[sheet.type]();
+    recipe:sheetRecipe,editRecipe:sheetEditRecipe,saveRecipe:sheetSaveRecipe,move:sheetMove,copyDay:sheetCopyDay}[sheet.type]();
   h.innerHTML=`<div class="scrim" data-close="1"></div><div class="drawer" role="dialog" aria-modal="true"><button class="x" data-close="1" aria-label="Close">×</button>${body}</div>`;
   const first=h.querySelector('#pQty,#quickAdd input,#foodForm input,#gTarget,#rQty,#saveRecipeForm input');
   if(first) first.focus({preventScroll:true});
@@ -3072,6 +3131,11 @@ document.addEventListener('submit',e=>{
     const old=d.id&&recipeById(d.id);
     putRecord('recipes',{...(old||{uses:0}),id:old?old.id:'r'+uid6(),name:d.name,servings:d.servings,items:items.map(({foodId,qty,unit})=>({foodId,qty,unit}))});
     toast(old?'Recipe saved':`Created ${d.name}`); closeSheet(); render(); return}
+  if(id==='copyDayForm'){
+    const to=f.get('to'), ids=copyPicks(); if(!to){toast('Pick a day.');return} if(!ids.length){toast('Pick at least one food.');return}
+    copyEntries(ids,to); const n=f.getAll('pick').length;
+    toast(`Copied ${n} food${n===1?'':'s'} to ${dayLabel(to).replace(/^(Today|Yesterday|Tomorrow)$/,s=>s.toLowerCase())}`);
+    day=to; closeSheet(); render(); return}
   if(id==='saveRecipeForm'){
     const name=String(f.get('name')||'').trim(), servings=num(f.get('servings'))||1, picks=new Set(f.getAll('pick'));
     const items=entriesFor(day).filter(e=>picks.has(e.id)&&foodById(e.foodId)).map(e=>({foodId:e.foodId,qty:e.qty,unit:e.unit}));
@@ -3175,6 +3239,9 @@ document.addEventListener('click',async e=>{
   if(d.rmgroup){const ids=state.entries.filter(x=>x.recipe&&x.recipe.group===d.rmgroup).map(x=>x.id), x=state.entries.find(x=>x.id===ids[0]);
     state.entries=state.entries.filter(x=>!ids.includes(x.id)); state.deleted.push(...ids); saveLocal(); toast(`Removed ${x?x.recipe.name:'recipe'}`); if(sheet) closeSheet(); render(); return}
   if(d.act==='saveRecipe'){openSheet({type:'saveRecipe'});return}
+  if(d.act==='copyDay'){openSheet({type:'copyDay',to:day===todayKey()?addDays(day,1):todayKey()});return}
+  if(d.act==='copyText'){copyDayText();return}
+  if(d.copyby){const el=document.getElementById('copyTo'); sheet.to=addDays(el.value||sheet.to,+d.copyby); el.value=sheet.to; document.getElementById('copyToName').textContent=dayLabel(sheet.to); return}
   if(d.act==='newRecipe'){openSheet({type:'editRecipe',draft:{name:'',servings:1,items:[]}});return}
   if(d.editrecipe){const r=recipeById(d.editrecipe); if(r) openSheet({type:'editRecipe',draft:{id:r.id,name:r.name,servings:r.servings||1,items:r.items.map(i=>({...i}))}}); return}
   if(d.rmitem){syncDraft(); sheet.draft.items.splice(+d.rmitem,1); renderSheet(); return}
@@ -3236,6 +3303,10 @@ document.addEventListener('change',async e=>{
   if(t.id==='splitOn'){showSplit(readSplit()); return}
   if(t.name&&t.name.startsWith('sp:')&&t.form){showSplit(readSplit()); return}
   if(t.dataset.photo&&t.files&&t.files[0]){const file=t.files[0]; t.value=''; if(t.dataset.photo==='barcode') barcodeFromPhoto(file); else fillFromLabel(file); return}
+  if(t.id==='copyTo'&&t.value&&sheet){sheet.to=t.value; document.getElementById('copyToName').textContent=dayLabel(t.value); return}
+  if(t.dataset.copypart!=null){t.form.querySelectorAll(`[data-part="${t.dataset.copypart}"]`).forEach(x=>x.checked=t.checked); return}
+  if(t.name==='pick'&&t.dataset.part!=null&&t.form){const kids=[...t.form.querySelectorAll(`[data-part="${t.dataset.part}"]`)], head=t.form.querySelector(`[data-copypart="${t.dataset.part}"]`);
+    if(head){head.checked=kids.every(x=>x.checked); head.indeterminate=!head.checked&&kids.some(x=>x.checked)} return}
   if(t.id==='dayPick'&&t.value){day=t.value;render();return}
   if(t.id==='addDay'&&t.value){day=t.value; adderWhenChanged(); return}
   if(t.id==='addTime'){addTime=t.value||null; const w=document.getElementById('adderWhen'); if(w&&!w.querySelector('[data-act="addNow"]')&&addTime) w.insertAdjacentHTML('beforeend','<button class="btn nav-btn" type="button" data-act="addNow" aria-label="Back to now" title="Back to now">↺</button>'); return}
