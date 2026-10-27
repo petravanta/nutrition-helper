@@ -272,6 +272,17 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .todaylay{display:flex;flex-direction:column;gap:16px}
 .todaylay.withfreq>.stack{display:contents}
 .todaylay .late,.todaylay .micros{order:2}
+.todaylay .common{order:1}
+/* Common meals: one tap row each, ticked once eaten on the day showing */
+.commons{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+.cm{display:grid;grid-template-columns:24px minmax(0,1fr);grid-template-rows:auto auto;column-gap:8px;align-items:center;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 10px;color:var(--ink);min-height:44px}
+.cm .tick{grid-row:span 2;width:22px;height:22px;border:2px solid var(--line);border-radius:6px;display:grid;place-items:center;font-size:14px;font-weight:700;color:var(--accent-ink)}
+.cm[aria-pressed="true"] .tick{background:var(--accent);border-color:var(--accent)}
+.cm[aria-pressed="true"] .cmn{color:var(--muted)}
+.cm .cmn{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm .cmq{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm .cmq b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
+.cm:disabled{opacity:1;cursor:default}
 .freq{order:1;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px 10px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .freq.shut{padding-bottom:8px}
 .freqhead{display:flex;align-items:center;gap:8px;background:none;border:0;padding:2px 0;color:var(--ink);text-align:left;width:100%;min-height:30px}
@@ -869,6 +880,28 @@ function suggestions(n=10){
   }
   return out.sort((a,b)=>b.score-a.score).slice(0,n);
 }
+// Common meals: a food or recipe logged on more than 70% of the last 14 days you logged anything (today not counted,
+// at least 4 such days), in the order you usually have them. Each carries the hour you usually have it.
+const COMMON_DAYS=14, COMMON_SHARE=0.7;
+function commonMeals(){
+  const t=todayKey(), from=addDays(t,-COMMON_DAYS), seen=new Map(), active=new Set();
+  for(const e of state.entries){
+    if(e.imported||e.date<from||e.date>=t) continue; active.add(e.date);
+    const key=e.recipe?'r:'+e.recipe.id:e.foodId?'f:'+e.foodId:null; if(!key) continue;
+    let x=seen.get(key); if(!x) seen.set(key,x={days:new Set(),hours:[]});
+    if(x.days.has(e.date)) continue; x.days.add(e.date);
+    const ts=e.ts&&new Date(e.ts); if(ts&&!isNaN(ts)&&dkey(ts)===e.date) x.hours.push(ts.getHours()+ts.getMinutes()/60);
+  }
+  if(active.size<4) return [];
+  const out=[];
+  for(const [key,x] of seen){
+    if(x.days.size/active.size<=COMMON_SHARE) continue;
+    const id=key.slice(2), item=key[0]==='r'?recipeById(id):foodById(id); if(!item) continue;
+    const hs=[...x.hours].sort((a,b)=>a-b), hour=hs.length?hs[hs.length>>1]:null;
+    out.push({key,kind:key[0]==='r'?'recipe':'food',item,hour});
+  }
+  return out.sort((a,b)=>(a.hour??25)-(b.hour??25));
+}
 // Foods opened from Open Food Facts, USDA or a barcode are kept so they show on the shortlist and in My foods
 // without another lookup. Only the latest ones that were never logged are kept.
 const LOOKUPS_KEPT=60;
@@ -945,10 +978,10 @@ function recipeTotals(r,servings){
 const recipeSummary=r=>{const n=recipeTotals(r,1); return `1 serving: ${fmt(n.kcal)} kcal · P ${fmt(n.protein,1)} · F ${fmt(n.fat,1)} · C ${fmt(n.carbs,1)}`};
 const servingsText=s=>`${fmtQty(s)} serving${s===1?'':'s'}`;
 const itemText=(f,it,factor=1)=>{const q=it.qty*factor; return unitKind(it.unit)==='serving'?`${fmtQty(q)} × ${unitLabel(f,it.unit)}`:`${fmtQty(q)} ${unitLabel(f,it.unit)}`};
-function logRecipe(r,servings){
+function logRecipe(r,servings,opt={}){
   const factor=servings/(r.servings||1), group='g'+uid6(); let n=0;
   r.items.forEach((it,i)=>{const f=foodById(it.foodId); if(!f) return;
-    logPortion(f,it.qty*factor,it.unit,null,{recipe:{id:r.id,name:r.name,group,servings},ts:logTs(i)}); n++});
+    logPortion(f,it.qty*factor,it.unit,null,{recipe:{id:r.id,name:r.name,group,servings},ts:opt.ts?new Date(Date.parse(opt.ts)+i).toISOString():logTs(i),via:opt.via}); n++});
   Object.assign(r,{lastServings:servings,lastUsed:nowIso(),uses:(r.uses||0)+1}); putRecord('recipes',r);
   return n;
 }
@@ -1368,14 +1401,43 @@ const entryAmt=e=>e.qty==null?'':unitKind(e.unit)==='serving'?`${fmtQty(e.qty)} 
 const macroGrams=get=>`P ${fmt(get('protein'))} g · F ${fmt(get('fat'))} g · C ${fmt(get('carbs'))} g${microsMeta(get)}`;
 // Frequent foods beside Today on a wide screen, a strip above the day's list on a phone: one tap adds the usual portion
 // to the day showing. Folding it away is kept in settings, so it stays folded on every device.
+// Common meals are left out here: they have their own list
 function freqPanel(){
-  const sug=building?[]:suggestions(10);
+  const common=new Set(commonMeals().map(c=>c.key));
+  const sug=building?[]:suggestions(10+common.size).filter(x=>!common.has((x.kind==='recipe'?'r:':'f:')+x.item.id)).slice(0,10);
   if(!sug.length) return '';
   const shut=!!state.settings.freqShut;
   return `<aside class="freq${shut?' shut':''}" aria-label="Frequent foods">
     <button class="freqhead" data-act="freqToggle" aria-expanded="${!shut}"><h3>Frequent foods</h3><span class="muted small">${shut?sug.length:'for now'}</span><span class="chev" aria-hidden="true">${shut?'▸':'▾'}</span></button>
     ${shut?'':`<div class="tiles">${sug.map(suggestionTile).join('')}</div>`}
   </aside>`;
+}
+// Common meals for the day showing: a tick logs the usual portion, at the usual time if that has passed; untick removes what the tick logged
+const commonOn=(c,d)=>state.entries.filter(e=>e.date===d&&(c.kind==='recipe'?e.recipe&&e.recipe.id===c.item.id:e.foodId===c.item.id&&!e.recipe));
+function commonPanel(){
+  const cm=building?[]:commonMeals(); if(!cm.length) return '';
+  return `<section class="panel stack common" aria-label="Common meals"><div class="row" style="justify-content:space-between"><h3>Common meals</h3><span class="small muted">most days lately</span></div>
+    <div class="commons">${cm.map(c=>{
+      const on=commonOn(c,day), mine=on.some(e=>e.via==='common'), r=c.kind==='recipe';
+      const lbl=r?servingsText(c.item.lastServings||1):portionText(c.item,defaultPortion(c.item));
+      const kcal=on.length?on.reduce((a,e)=>a+(e.kcal||0),0):r?recipeTotals(c.item,c.item.lastServings||1).kcal:(p=>nutrientsFor(c.item,baseAmount(c.item,p.qty,p.unit)).kcal)(defaultPortion(c.item));
+      const when=c.hour==null?'':hourShort(Math.floor(c.hour))+' · ';
+      return `<button class="cm" data-common="${c.key}" aria-pressed="${!!on.length}" ${on.length&&!mine?'disabled title="Logged another way; change it in the list below"':''}>
+        <span class="tick" aria-hidden="true">${on.length?'✓':''}</span><span class="cmn">${esc(c.item.name)}</span><span class="cmq">${when}${esc(lbl)} · <b>${fmt(kcal)}</b> kcal</span></button>`}).join('')}</div>
+  </section>`;
+}
+function commonTs(c){
+  if(c.hour==null) return logTs();
+  const d=parseDay(day); d.setHours(Math.floor(c.hour),Math.round(c.hour%1*60),0,0);
+  return addTime||d>new Date()?logTs():d.toISOString();
+}
+function toggleCommon(key){
+  const c=commonMeals().find(x=>x.key===key); if(!c) return;
+  const on=commonOn(c,day);
+  if(on.length){on.filter(e=>e.via==='common').forEach(e=>dropRecord('entries',e.id)); toast(`Removed ${c.item.name}`); return}
+  const opt={ts:commonTs(c),via:'common'};
+  if(c.kind==='recipe'){const sv=c.item.lastServings||1; logRecipe(c.item,sv,opt); toast(`Added ${servingsText(sv)} of ${c.item.name}`)}
+  else{const p=defaultPortion(c.item); logPortion(c.item,p.qty,p.unit,null,opt); toast(`Added ${itemText(c.item,p)} of ${c.item.name}`)}
 }
 function viewToday(){
   const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), fq=freqPanel();
@@ -1389,6 +1451,7 @@ function viewToday(){
     </div>
     ${day===todayKey()&&checkinDue()?checkinBanner():''}
     <section class="budget" aria-label="Daily budget">${MACROS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
+    ${commonPanel()}
     ${microsPanel()}
     <section class="panel stack late">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
@@ -3109,7 +3172,7 @@ function logPortion(f,qty,unit,entryId,opt={}){
   f=keepFood(f);
   const amt=baseAmount(f,qty,unit), n=nutrientsFor(f,amt), old=entryId&&state.entries.find(x=>x.id===entryId), recipe=opt.recipe||old&&old.recipe;
   const rec={id:old?old.id:'e'+uid6(),date:old?old.date:day,ts:old?old.ts:opt.ts||logTs(),foodId:f.id,name:f.name+(f.brand?` (${f.brand})`:''),
-    qty,unit,unitLabel:unitLabel(f,unit),amt,...Object.fromEntries(METRICS.map(m=>[m.k,n[m.k]])),more:moreOf(n),...(recipe?{recipe}:{})};
+    qty,unit,unitLabel:unitLabel(f,unit),amt,...Object.fromEntries(METRICS.map(m=>[m.k,n[m.k]])),more:moreOf(n),...(recipe?{recipe}:{}),...(opt.via?{via:opt.via}:old&&old.via?{via:old.via}:{})};
   putRecord('entries',rec);
   if(recipe) return rec;
   Object.assign(f,{lastUnit:unit,lastQty:qty,lastAmt:amt,lastUsed:nowIso(),uses:(f.uses||0)+(old?0:1)}); putRecord('foods',f);
@@ -3263,6 +3326,7 @@ document.addEventListener('click',async e=>{
   if(d.brand!=null){const on=search.brand!==d.brand; search.brand=on?d.brand:null; search.brandName=on?d.brandname:''; refreshResults(); return}
   if(d.pickext){const [k,i]=d.pickext.split(':'), f=(search[k]||[])[+i]; if(f){openSheet({type:'food',food:rememberLookup(f)}); refreshResults()} return}
   if(d.pickrecipe){const r=recipeById(d.pickrecipe); if(r) openSheet({type:'recipe',recipe:r}); return}
+  if(d.common){toggleCommon(d.common); render(); return}
   if(d.quickfood){const f=foodById(d.quickfood); if(!f) return; const p=defaultPortion(f), rec=logPortion(f,p.qty,p.unit); toast(`Added ${itemText(f,p)} of ${rec.name}`); render(); return}
   if(d.todayfood){const f=foodById(d.todayfood); if(!f) return; const p=defaultPortion(f); let rec; logToToday(()=>rec=logPortion(f,p.qty,p.unit)); toast(`Added ${itemText(f,p)} of ${rec.name} to today`); render(); return}
   if(d.todayrecipe){const r=recipeById(d.todayrecipe); if(!r) return; const s=r.lastServings||1; logToToday(()=>logRecipe(r,s)); toast(`Added ${servingsText(s)} of ${r.name} to today`); render(); return}
