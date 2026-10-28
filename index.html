@@ -656,6 +656,7 @@ function defaultSettings(){return{
   macroPins:{},   // {kcal:true,…}: macros set by hand, left alone by check-ins (see Daily targets)
   macroSplit:null,   // {protein,fat,carbs}: % of calories from each, set on the triangle in Daily targets; null follows the goal
   macroKinds:{},   // {carbs:'ceiling',…}: macros you track as at most / at least / aim for, over the usual
+  trendMicros:['sodium','cholesterol'],   // micronutrients charted on Trends, in order
   chartHide:{},   // {weight:['scale'],…}: series switched off in a chart's legend
   dayParts:[...DEFAULT_DAY_PARTS],   // start hours of the parts of the day the Foods page breaks usage into
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
@@ -677,6 +678,8 @@ function normalize(j){
   s.settings.profile=Object.assign(defaultSettings().profile,s.settings.profile||{});
   if(!Array.isArray(s.settings.micros)) s.settings.micros=DEFAULT_MICROS();
   s.settings.micros=s.settings.micros.filter(c=>c&&MICRO_OPTIONS.some(x=>x.k===c.k));
+  if(!Array.isArray(s.settings.trendMicros)) s.settings.trendMicros=defaultSettings().trendMicros;
+  s.settings.trendMicros=[...new Set(s.settings.trendMicros)].filter(k=>MICRO_OPTIONS.some(x=>x.k===k));
   // Before custom targets, sodium's limit lived in the dated targets and a set number matched the recommendation
   const fresh=!(j.settings&&j.settings.macroPins), na=s.settings.micros.find(c=>c.k==='sodium'), lastT=[...s.settings.targets].sort((a,b)=>a.from<b.from?1:-1)[0];
   if(na&&na.v==null&&fresh&&lastT.sodium>0&&lastT.sodium!==REC.sodium) na.v=lastT.sodium;
@@ -2338,7 +2341,10 @@ function chartRows(){
   const {from,to}=rangeSpan(M.days[0].date);
   const sel=M.days.filter(r=>r.date>=from&&r.date<=to);
   const weekly=sel.length>120;
-  const row=r=>{const tg=targetsFor(r.date); return {date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,tdee:r.tdee,goal:setpointOn(r.date),
+  // The micronutrients charted on Trends, summed per logged day from each entry's snapshot (u_<key>)
+  const tm=trendMicros(), mic={};
+  if(tm.length) for(const e of state.entries) if(e.date>=from&&e.date<=to){const d=mic[e.date]||(mic[e.date]={}); tm.forEach(c=>d[c.k]=(d[c.k]||0)+entryNut(e,c.k))}
+  const row=r=>{const tg=targetsFor(r.date); return {...Object.fromEntries(tm.flatMap(c=>[['u_'+c.k,r.intake?(mic[r.date]||{})[c.k]||0:null],['ul_'+c.k,c.lim]])),date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,tdee:r.tdee,goal:setpointOn(r.date),
     net:r.intake&&r.tdee!=null?r.intake.kcal-r.tdee:null,
     ...Object.fromEntries(METRICS.map(m=>[m.k,r.intake?r.intake[m.k]:null])),...Object.fromEntries(METRICS.map(m=>['t_'+m.k,tg[m.k]]))}};
   if(!weekly) return {rows:sel.map(row),weekly};
@@ -2493,6 +2499,24 @@ function measureChart(){
     tableIf:r=>sites.some(k=>r['read_'+k]!=null),
     series:sites.map((k,i)=>({k:'read_'+k,tipK:'cur_'+k,name:siteName(k),mark:'dotline',color:MEASURE_COLORS[i%MEASURE_COLORS.length],conv:lconv}))});
 }
+// Micronutrients on Trends (settings.trendMicros): each with the limit or target it has on Today, else the daily value
+function trendMicros(){
+  return state.settings.trendMicros.filter(k=>NUT[k]).map(k=>{const c=state.settings.micros.find(x=>x.k===k)||{k,v:null,kind:MICRO_CEILING.has(k)?'ceiling':'floor'};
+    return {k,n:NUT[k].n,u:NUT[k].u,kind:c.kind,lim:microLimit(c)}});
+}
+function microTrends(rows,weekly){
+  const tm=trendMicros(), groups=[...new Set(MICRO_OPTIONS.map(x=>x.g))], on=state.settings.trendMicros;
+  const limName={ceiling:'Limit',floor:'At least',target:'Target'};
+  const picker=`<section class="panel stack"><h3>Micronutrients</h3>
+    <div class="row">${tm.map(c=>`<button class="chip" data-rmtrend="${c.k}" aria-label="Stop charting ${esc(c.n)}" title="Stop charting">${esc(c.n)} ×</button>`).join('')}
+      <select id="addTrendMicro" aria-label="Chart another nutrient" style="flex:1 1 200px"><option value="">Chart another nutrient…</option>
+      ${groups.map(g=>`<optgroup label="${g}">${MICRO_OPTIONS.filter(x=>x.g===g&&!on.includes(x.k)).map(x=>`<option value="${x.k}">${x.n} (${x.u})</option>`).join('')}</optgroup>`).join('')}</select></div>
+    ${tm.length?'':'<p class="small muted">Pick any nutrient to see its daily trend.</p>'}</section>`;
+  return picker+tm.map(c=>chartCard({id:'micro_'+c.k,title:`${c.n} (${c.u})`,unit:c.u,dp:c.u==='mg'||c.u==='µg'||c.u==='mcg'?0:1,rows,weekly,zero:true,h:180,
+    series:[{k:'u_'+c.k,name:c.n,mark:'bar',color:'b'},...(c.lim?[{k:'ul_'+c.k,name:limName[c.kind]||'Target',mark:'step',color:'ink'}]:[])],
+    foot:(()=>{const v=rows.filter(r=>r['u_'+c.k]!=null); if(!v.length) return ''; const avg=v.reduce((a,r)=>a+r['u_'+c.k],0)/v.length;
+      return `<p class="small muted">Average over this range: <b>${fmtNut(avg)} ${c.u}/day</b>${c.lim?`, ${fmt(100*avg/c.lim)}% of ${c.kind==='ceiling'?'your limit':c.kind==='floor'?'your minimum':'your target'} (${fmtNut(c.lim)} ${c.u})`:''}.</p>`})()})).join('');
+}
 function viewTrends(){
   const {rows,weekly}=chartRows(), wconv=v=>toDisp(v), mc=measureChart();
   const mk=(id,title,unit,dp,series,extra={})=>chartCard({id,title,unit,dp,rows,weekly,series,...extra});
@@ -2512,7 +2536,8 @@ function viewTrends(){
       foot:(()=>{const v=rows.filter(r=>r.net!=null); if(!v.length) return ''; const avg=v.reduce((a,r)=>a+r.net,0)/v.length;
         return `<p class="small muted">Average ${avg>0?'surplus':'deficit'} over this range: <b>${fmt(Math.abs(avg))} kcal/day</b>, about ${fmtW(Math.abs(avg)*v.length*(weekly?7:1)/KCAL_PER_KG)} ${wUnit()} ${avg>0?'gained':'lost'} in all.</p>`})()})}
     ${mk('macros','Calories & macros','g',0,[{k:'protein',name:'Protein (g)',mark:'stack',color:'b'},{k:'fat',name:'Fat (g)',mark:'stack',color:'e'},{k:'carbs',name:'Carbs (g)',mark:'stack',color:'c'},
-      {k:'kcal',name:'Calories',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240,toggle:true,units:true})}`
+      {k:'kcal',name:'Calories',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240,toggle:true,units:true})}
+    ${microTrends(rows,weekly)}`
     :mc?'':`<p class="empty">Log food and weigh-ins to see trends here.</p>`}
     ${mc}
   </div>`;
@@ -3323,6 +3348,7 @@ document.addEventListener('click',async e=>{
   if(d.act==='chooseMicros'){tab='settings';try{sessionStorage.setItem('nh.tab',tab)}catch(_){};render();const el=document.getElementById('microsPanel'); if(el) el.scrollIntoView(); return}
   if(d.rmpart){const h=readDayParts(); h.splice(+d.rmpart,1); if(setDayParts(h)) render(); return}
   if(d.unset){const el=document.querySelector(`#targetsForm [name="v:${d.unset}"]`); if(el) el.value=''; readTargetsForm(); touchSettings(); toast('Back to the usual target'); render(); return}
+  if(d.rmtrend){state.settings.trendMicros=state.settings.trendMicros.filter(k=>k!==d.rmtrend); touchSettings(); render(); return}
   if(d.rmmicro){readTargetsForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
   if(d.day){day=addDays(day,+d.day);render();return}
   if(d.act==='goToday'){day=todayKey();render();return}
@@ -3417,6 +3443,7 @@ document.addEventListener('change',async e=>{
   if(t.id==='rangeFrom'||t.id==='rangeTo'){rangeDates[t.id==='rangeFrom'?'from':'to']=t.value; try{sessionStorage.setItem('nh.rangeDates',JSON.stringify(rangeDates))}catch(_){} render(); return}
   if(t.id==='listSort'){listSort=t.value; try{localStorage.setItem('nh.listSort',listSort)}catch(_){} render(); return}
   if(t.id==='foodSort'){foodSort=t.value; try{sessionStorage.setItem('nh.foodSort',foodSort)}catch(_){} render(); return}
+  if(t.id==='addTrendMicro'&&t.value){state.settings.trendMicros=[...state.settings.trendMicros,t.value]; touchSettings(); render(); return}
   if(t.id==='addMicro'&&t.value){readTargetsForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
     touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
   if(t.hasAttribute('data-wdate')&&t.value){t.form.querySelector('.wfields').innerHTML=weighFields(t.value); return}
