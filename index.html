@@ -1106,7 +1106,7 @@ async function lookupBarcode(code){
 }
 
 /* ---------------- Trend, expenditure & goal ---------------- */
-// Trend weight smooths daily scale noise (exponential moving average, 10% per weigh-in).
+// Trend weight smooths daily scale noise (exponential moving average, 10% per weigh-in); body fat readings get the same trend.
 // Expenditure comes from energy balance: over the last 3 weeks, average intake minus the change in trend weight
 // (7,700 kcal per kg), eased in 10% a day. Until there's enough logging it starts from a profile estimate.
 const KCAL_PER_KG=7700, TREND_ALPHA=0.1, TDEE_WINDOW=21, TDEE_ALPHA=0.1;
@@ -1128,11 +1128,12 @@ function model(){
   const all=[...Object.keys(intake),...Object.keys(scale)].sort(), today=todayKey();
   const days=[];
   if(all.length){
-    let trend=null, tdee=null, dataDays=0;
+    let trend=null, fatTrend=null, tdee=null, dataDays=0;
     for(let d=all[0]; d<=today; d=addDays(d,1)){
       const s=scale[d];
       if(s) trend=trend==null?s.kg:trend+TREND_ALPHA*(s.kg-trend);
-      const row={date:d,scale:s?s.kg:null,fat:s&&s.fat!=null?s.fat:null,trend,intake:intake[d]||null,tdee:null};
+      if(s&&s.fat!=null) fatTrend=fatTrend==null?s.fat:fatTrend+TREND_ALPHA*(s.fat-fatTrend);
+      const row={date:d,scale:s?s.kg:null,fat:s&&s.fat!=null?s.fat:null,trend,fatTrend,intake:intake[d]||null,tdee:null};
       days.push(row);
       const i=days.length-1;
       if(tdee==null&&trend!=null) tdee=profileTdee(trend);
@@ -2344,14 +2345,14 @@ function chartRows(){
   // The micronutrients charted on Trends, summed per logged day from each entry's snapshot (u_<key>)
   const tm=trendMicros(), mic={};
   if(tm.length) for(const e of state.entries) if(e.date>=from&&e.date<=to){const d=mic[e.date]||(mic[e.date]={}); tm.forEach(c=>d[c.k]=(d[c.k]||0)+entryNut(e,c.k))}
-  const row=r=>{const tg=targetsFor(r.date); return {...Object.fromEntries(tm.flatMap(c=>[['u_'+c.k,r.intake?(mic[r.date]||{})[c.k]||0:null],['ul_'+c.k,c.lim]])),date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,tdee:r.tdee,goal:setpointOn(r.date),
+  const row=r=>{const tg=targetsFor(r.date); return {...Object.fromEntries(tm.flatMap(c=>[['u_'+c.k,r.intake?(mic[r.date]||{})[c.k]||0:null],['ul_'+c.k,c.lim]])),date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,bfTrend:r.fatTrend,tdee:r.tdee,goal:setpointOn(r.date),
     net:r.intake&&r.tdee!=null?r.intake.kcal-r.tdee:null,
     ...Object.fromEntries(METRICS.map(m=>[m.k,r.intake?r.intake[m.k]:null])),...Object.fromEntries(METRICS.map(m=>['t_'+m.k,tg[m.k]]))}};
   if(!weekly) return {rows:sel.map(row),weekly};
   const out=[];
   for(let i=0;i<sel.length;i+=7){
     const wk=sel.slice(i,i+7).map(row), avg=k=>{const v=wk.map(r=>r[k]).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null};
-    const o={date:wk[0].date,end:wk[wk.length-1].date}; Object.keys(wk[0]).forEach(k=>{if(k!=='date') o[k]=avg(k)}); o.trend=wk[wk.length-1].trend; o.goal=wk[wk.length-1].goal; o.tdee=wk[wk.length-1].tdee; out.push(o);
+    const o={date:wk[0].date,end:wk[wk.length-1].date}; Object.keys(wk[0]).forEach(k=>{if(k!=='date') o[k]=avg(k)}); o.trend=wk[wk.length-1].trend; o.bfTrend=wk[wk.length-1].bfTrend; o.goal=wk[wk.length-1].goal; o.tdee=wk[wk.length-1].tdee; out.push(o);
   }
   return {rows:out,weekly};
 }
@@ -2527,9 +2528,9 @@ function viewTrends(){
       <label class="small muted">To <input type="date" id="rangeTo" value="${esc(rangeDates.to)}" max="${todayKey()}"></label>
       <span class="small muted">Leave either empty for the first record or today.</span></div>`:''}
     ${rows.length?`${weekly?'<p class="small muted">Long ranges show weekly averages.</p>':''}
-    ${mk('weight',`Weight${rows.some(r=>r.bf!=null)?' & body fat':''}`,wUnit(),1,[{k:'scale',name:'Scale',mark:'dots',color:'faint',conv:wconv},{k:'trend',name:'Trend',mark:'line',color:'a',conv:wconv},
+    ${mk('weight',`Weight${rows.some(r=>r.bfTrend!=null)?' & body fat':''}`,wUnit(),1,[{k:'scale',name:'Scale',mark:'dots',color:'faint',conv:wconv},{k:'trend',name:'Trend',mark:'line',color:'a',conv:wconv},
       ...(state.settings.goal?[{k:'goal',name:'Goal path',mark:'dash',color:'b',conv:wconv}]:[]),
-      ...(rows.some(r=>r.bf!=null)?[{k:'bf',name:'Body fat',mark:'dotline',color:'d',axis:'bf',unit:'%'}]:[]),
+      ...(rows.some(r=>r.bfTrend!=null)?[{k:'bf',name:'Body fat',mark:'dots',color:'d',axis:'bf',unit:'%'},{k:'bfTrend',name:'Body fat trend',mark:'line',color:'d',axis:'bf',unit:'%'}]:[]),
       ],{h:240,toggle:true,units:true})}
     ${mk('net','Calories vs expenditure','kcal',0,[{k:'kcal',name:'Calories',mark:'line',color:'a'},{k:'tdee',name:'Expenditure',mark:'line',color:'d'},
       {k:'net',name:'Surplus / deficit',mark:'delta',color:'e',axis:'net',unit:'kcal'}],{h:260,toggle:true,units:true,bands:{left:[0.45,1],net:[0,0.38]},
