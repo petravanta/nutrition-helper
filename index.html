@@ -2069,8 +2069,14 @@ document.addEventListener('pointerdown',e=>{
 });
 ['pointerup','pointercancel','pointerleave'].forEach(k=>document.addEventListener(k,wStop));
 document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-wstep]'); if(b&&Date.now()-wHoldAt>800) weighStep(b)});   // keyboard presses
-// Tapping a prefilled weigh-in box selects it, so typing replaces the old value
-document.addEventListener('focusin',e=>{const t=e.target; if(t.form&&t.form.classList.contains('wform')&&(t.name==='weight'||t.name==='fat')) setTimeout(()=>{try{t.select()}catch(_){}})});
+// Focusing any number box (quantity, servings, weigh-in, targets…) selects what's in it, so typing replaces the old value.
+// Only on the way in: a tap on a box that already has focus places the caret as usual.
+let selOnUp=null;
+document.addEventListener('focusin',e=>{const t=e.target; if(!(t instanceof HTMLInputElement)||t.type!=='number'||t.readOnly) return;
+  selOnUp=t; setTimeout(()=>{try{if(document.activeElement===t) t.select()}catch(_){}})});
+// The click that focused the box would otherwise drop the selection to a caret when the finger/mouse lifts
+document.addEventListener('mouseup',e=>{if(selOnUp&&e.target===selOnUp){e.preventDefault(); try{selOnUp.select()}catch(_){}} selOnUp=null});
+document.addEventListener('focusout',()=>{selOnUp=null});
 function viewWeight(){
   const ws=weighinsSorted(), last=ws[0], M=model();
   const wk=M.byDate[addDays(todayKey(),-7)], ch=M.trendNow!=null&&wk&&wk.trend!=null?M.trendNow-wk.trend:null;
