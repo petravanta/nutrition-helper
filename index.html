@@ -90,6 +90,10 @@ textarea{resize:vertical}
 @media (max-width:720px){.two{grid-template-columns:minmax(0,1fr)}}
 .banner{background:var(--accent-soft);border-radius:var(--r);padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .banner p{flex:1 1 260px}
+.banner .review{flex:1 1 100%;border-top:1px solid var(--line);padding-top:10px}
+.mealhints{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+.mealhint{display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap}
+.mealhint p{flex:1 1 220px;margin:0}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 @media (max-width:620px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .stat b{display:block;font-family:var(--f-mono);font-size:24px;font-weight:500}
@@ -658,7 +662,8 @@ function defaultSettings(){return{
   macroKinds:{},   // {carbs:'ceiling',…}: macros you track as at most / at least / aim for, over the usual
   trendMicros:['sodium','cholesterol'],   // micronutrients charted on Trends, in order
   chartHide:{},   // {weight:['scale'],…}: series switched off in a chart's legend
-  dayParts:[...DEFAULT_DAY_PARTS],   // start hours of the parts of the day the Foods page breaks usage into
+  dayParts:[...DEFAULT_DAY_PARTS],
+  mealHints:{off:[],shown:[]},   // foods often logged together: sets saved or turned down, and sets already prompted for   // start hours of the parts of the day the Foods page breaks usage into
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
@@ -691,11 +696,12 @@ function normalize(j){
   }
   if(!s.settings.macroKinds||typeof s.settings.macroKinds!=='object') s.settings.macroKinds={};
   s.settings.macroSplit=cleanSplit(s.settings.macroSplit);
+  const mh=s.settings.mealHints||{}; s.settings.mealHints={off:Array.isArray(mh.off)?mh.off:[],shown:Array.isArray(mh.shown)?mh.shown:[]};
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
   return s;
 }
 const local=lsGet(LS_KEY); if(local) state=normalize(local);
-function saveLocal(){MODEL=null; if(!lsSet(LS_KEY,state)) toast('This browser is out of space. Export a backup.'); driveSoon()}
+function saveLocal(){MODEL=null; PAIRED=null; if(!lsSet(LS_KEY,state)) toast('This browser is out of space. Export a backup.'); driveSoon()}
 function touchSettings(){state.settings.updatedAt=nowIso(); saveLocal()}
 function putRecord(list,rec){rec.u=nowIso(); const a=state[list], i=a.findIndex(x=>x.id===rec.id); i>=0?a[i]=rec:a.push(rec); saveLocal()}
 function dropRecord(list,id){state[list]=state[list].filter(x=>x.id!==id); state.deleted.push(id); saveLocal()}
@@ -903,6 +909,108 @@ function commonMeals(){
     out.push({key,kind:key[0]==='r'?'recipe':'food',item,hour});
   }
   return out.sort((a,b)=>(a.hour??25)-(b.hour??25));
+}
+// Meals hiding in the log: foods you keep logging together at one sitting (within an hour of each other, on the day
+// eaten) over the last six weeks, on at least 4 days, that aren't a recipe yet. The least common food in the set must
+// come with the others at least 60% of the time, so a daily coffee doesn't glue itself to everything. Overlapping sets
+// give way to the one covering the most logs. settings.mealHints remembers answers: off = saved or "not a meal" (never
+// offered again, nor anything inside or around it), shown = the one-time prompt on Today was seen (still listed in the
+// weekly check-in and on Foods).
+const PAIR_DAYS=42, PAIR_MIN=4, PAIR_GAP=60, PAIR_CONF=0.6, PAIR_MAX=8;
+const mealKey=ids=>[...ids].sort().join('+');
+function sittings(){
+  const t=todayKey(), from=addDays(t,-PAIR_DAYS), byDay=new Map();
+  for(const e of state.entries){
+    if(e.imported||e.recipe||!e.foodId||e.date<from||e.date>t||!foodById(e.foodId)) continue;
+    const ts=e.ts&&new Date(e.ts); if(!ts||isNaN(ts)||dkey(ts)!==e.date) continue;
+    (byDay.get(e.date)||byDay.set(e.date,[]).get(e.date)).push({e,m:ts.getTime()});
+  }
+  const out=[];
+  for(const [date,xs] of byDay){
+    xs.sort((a,b)=>a.m-b.m); let cur=null;
+    for(const x of xs){
+      if(!cur||x.m-cur.last>PAIR_GAP*6e4) out.push(cur={date,last:x.m,start:x.m,ents:[]});
+      cur.ents.push(x.e); cur.last=x.m;
+    }
+  }
+  out.forEach(s=>s.ids=new Set(s.ents.map(e=>e.foodId)));
+  return out.filter(s=>s.ids.size>=2);
+}
+// Worked out once per change to the data (saveLocal clears it) and per day
+let PAIRED=null;
+function pairedMeals(){
+  const t=todayKey(); if(!PAIRED||PAIRED.t!==t) PAIRED={t,v:findPairedMeals()};
+  return PAIRED.v;
+}
+function findPairedMeals(){
+  const hints=state.settings.mealHints, off=hints.off.map(k=>k.split('+'));
+  const ss=sittings(), days=ids=>new Set(ss.filter(s=>ids.every(i=>s.ids.has(i))).map(s=>s.date));
+  const count=new Map(); ss.forEach(s=>s.ids.forEach(i=>count.set(i,(count.get(i)||0)+1)));
+  const items=[...count.keys()].filter(i=>count.get(i)>=PAIR_MIN).sort();
+  // Grow sets one food at a time (in id order, so each set is built once) while they still come up on enough days
+  let level=[], found=[];
+  for(let a=0;a<items.length;a++) for(let b=a+1;b<items.length;b++){const ids=[items[a],items[b]], d=days(ids); if(d.size>=PAIR_MIN) level.push({ids,d})}
+  while(level.length){
+    found.push(...level); const next=[];
+    if(level[0].ids.length<PAIR_MAX&&level.length<=2000) for(const x of level){
+      const lastI=items.indexOf(x.ids[x.ids.length-1]);
+      for(const i of items.slice(lastI+1)){const ids=[...x.ids,i], d=days(ids); if(d.size>=PAIR_MIN) next.push({ids,d})}
+    }
+    level=next;
+  }
+  const inRecipe=ids=>state.recipes.some(r=>ids.every(i=>r.items.some(it=>it.foodId===i)));
+  const near=ids=>off.some(o=>ids.every(i=>o.includes(i))||o.every(i=>ids.includes(i)));
+  const ok=found.filter(x=>{
+    const n=ss.filter(s=>x.ids.every(i=>s.ids.has(i))).length;
+    x.n=n; return n/Math.min(...x.ids.map(i=>count.get(i)))>=PAIR_CONF&&!inRecipe(x.ids)&&!near(x.ids)});
+  ok.sort((a,b)=>b.n*b.ids.length-a.n*a.ids.length||b.d.size-a.d.size);
+  const used=new Set(), out=[];
+  for(const x of ok){
+    if(x.ids.some(i=>used.has(i))) continue; x.ids.forEach(i=>used.add(i));
+    const at=ss.filter(s=>x.ids.every(i=>s.ids.has(i)));
+    const hs=at.map(s=>{const d=new Date(s.start); return d.getHours()+d.getMinutes()/60}).sort((a,b)=>a-b), hour=hs[hs.length>>1];
+    // Each food's usual amount at these sittings: its most used unit, and the middle amount in it
+    const portions=x.ids.map(id=>{
+      const es=at.map(s=>s.ents.filter(e=>e.foodId===id)).map(g=>({unit:g[0].unit,qty:g.filter(e=>e.unit===g[0].unit).reduce((a,e)=>a+(e.qty||0),0)}));
+      const byU=new Map(); es.forEach(p=>(byU.get(p.unit)||byU.set(p.unit,[]).get(p.unit)).push(p.qty));
+      const [unit,qs]=[...byU].sort((a,b)=>b[1].length-a[1].length)[0]; qs.sort((a,b)=>a-b);
+      return {foodId:id,unit,qty:+fmtQty(qs[qs.length>>1])}});
+    portions.sort((a,b)=>foodById(a.foodId).name.localeCompare(foodById(b.foodId).name));
+    out.push({key:mealKey(x.ids),items:portions,days:x.d.size,hour});
+  }
+  return out.slice(0,3);
+}
+const mealWhen=h=>h<10.5?'breakfast':h<14.5?'lunch':h<17?'snack':h<21.5?'dinner':'late snack';
+function mealName(m){
+  const base='Usual '+mealWhen(m.hour), names=m.items.map(i=>foodById(i.foodId).name);
+  return state.recipes.some(r=>r.name.toLowerCase()===base.toLowerCase())?names.slice(0,2).join(' & ')+(names.length>2?' & more':''):base;
+}
+const andList=xs=>xs.length<2?xs.join(''):xs.slice(0,-1).join(', ')+' and '+xs[xs.length-1];
+const mealFoods=m=>andList(m.items.map(i=>`<b>${esc(foodById(i.foodId).name)}</b>`));
+const mealKcal=m=>recipeTotals({servings:1,items:m.items},1).kcal;
+const mealButtons=(m,later)=>`<button class="btn sm primary" data-mealsave="${m.key}">Save as a meal</button><button class="btn sm ghost" data-mealno="${m.key}">Not a meal</button>${later?`<button class="btn sm ghost" data-meallater="${m.key}">Not now</button>`:''}`;
+// The one-time nudge on Today: the first set not answered or shown before
+function mealPrompt(){
+  if(building||day!==todayKey()) return '';
+  const shown=new Set(state.settings.mealHints.shown), m=pairedMeals().find(x=>!shown.has(x.key)); if(!m) return '';
+  return `<section class="banner meal"><p><b>Looks like a regular meal.</b> You’ve logged ${mealFoods(m)} together on ${m.days} days lately, usually around ${hourShort(Math.floor(m.hour))}. Save them as a meal to log them all with one tap? You won’t be asked about these again.</p>
+    <div class="row">${mealButtons(m,true)}</div></section>`;
+}
+// The same sets, for the weekly check-in and Foods: a quiet list, not a prompt
+function mealList(ms){
+  return `<div class="mealhints">${ms.map(m=>`<div class="mealhint"><p>${mealFoods(m)}<br><span class="small muted">${m.days} days lately, around ${hourShort(Math.floor(m.hour))} · about ${fmt(mealKcal(m))} kcal</span></p>
+    <div class="row">${mealButtons(m,false)}</div></div>`).join('')}</div>`;
+}
+function mealHint(key,how){
+  const h=state.settings.mealHints;
+  if(how==='later'){if(!h.shown.includes(key)) h.shown.push(key)}
+  else{if(!h.off.includes(key)) h.off.push(key); h.shown=h.shown.filter(k=>k!==key)}
+  touchSettings();
+}
+function saveMealDraft(key){
+  const m=pairedMeals().find(x=>x.key===key); if(!m) return;
+  mealHint(key,'later');   // seen: the editor's Save is what puts it away for good
+  openSheet({type:'editRecipe',draft:{name:mealName(m),servings:1,items:m.items.map(i=>({...i})),hint:key}});
 }
 // Foods opened from Open Food Facts, USDA or a barcode are kept so they show on the shortlist and in My foods
 // without another lookup. Only the latest ones that were never logged are kept.
@@ -1300,7 +1408,7 @@ function mergeIn(r){
   if(!r||r.app!=='nutrition-helper') return false;
   const o=normalize(r), before=JSON.stringify(state);
   const del=new Set([...state.deleted,...o.deleted]);
-  MODEL=null;
+  MODEL=null; PAIRED=null;
   for(const k of LISTS){
     const byId=new Map();
     [...o[k],...state[k]].forEach(x=>{if(!x.id||del.has(x.id)) return; const h=byId.get(x.id); if(!h||(x.u||'')>=(h.u||'')) byId.set(x.id,x)});
@@ -1452,7 +1560,7 @@ function viewToday(){
       <button class="btn nav-btn" data-day="1" aria-label="Next day">›</button>
       ${day!==todayKey()?'<button class="btn sm" data-act="goToday">Today</button>':''}
     </div>
-    ${day===todayKey()&&checkinDue()?checkinBanner():''}
+    ${day===todayKey()&&checkinDue()?checkinBanner():mealPrompt()}
     <section class="budget" aria-label="Daily budget">${MACROS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
     ${commonPanel()}
     ${microsPanel()}
@@ -1752,7 +1860,8 @@ function checkinBanner(){
   const d=p.targets.kcal-cur.kcal;
   return `<section class="banner"><p><b>Weekly check-in.</b> ${p.reached?'You\u2019ve reached your goal weight, so this holds you there. ':''}Expenditure is about <b>${fmt(M.tdeeNow)} kcal</b> a day${last&&last.tdee&&Math.round(last.tdee)!==M.tdeeNow?` (was ${fmt(last.tdee)})`:''}.
     New budget: <b>${fmt(p.targets.kcal)} kcal</b>${d?` (${d>0?'+':''}${fmt(d)})`:''}, ${fmt(p.targets.protein)} g protein, ${fmt(p.targets.fat)} g fat, ${fmt(p.targets.carbs)} g carbs.</p>
-    <div class="row"><button class="btn sm primary" data-act="applyCheckin">Apply</button><button class="btn sm ghost" data-act="snooze">Not now</button></div></section>`;
+    <div class="row"><button class="btn sm primary" data-act="applyCheckin">Apply</button><button class="btn sm ghost" data-act="snooze">Not now</button></div>
+    ${(ms=>ms.length?`<div class="review"><p><b>Regular meals?</b> These foods keep showing up together. Save any as a meal, or say no and they won’t come up again.</p>${mealList(ms)}</div>`:'')(pairedMeals())}</section>`;
 }
 function foodRow(f,attr,tag){
   return `<button class="food" ${attr}><span><span class="fn">${esc(f.name)}</span>${f.brand?` <span class="fb">${esc(f.brand)}</span>`:''}${tag?` <span class="src-tag">${esc(tag)}</span>`:''}<br><span class="fb">${servingSummary(f)}</span></span>
@@ -2114,6 +2223,7 @@ function viewFoods(){
         <button class="btn sm ghost" data-pickrecipe="${r.id}">Log</button>
         <button class="x-btn" data-rmrecipe="${r.id}" aria-label="Remove ${esc(r.name)}">×</button>${todayRecipe(r)}</div>`).join('')}</div>`
       :`<p class="small muted">Group foods you often eat together, then log them in one go. Build one here, or log a meal and use <b>Save as recipe</b> on Today.</p>`}
+      ${(ms=>ms.length?`<p class="small muted" style="margin:8px 0 0"><b>Often logged together.</b> These look like regular meals. Save one as a recipe, or tell the app it isn’t a meal.</p>${mealList(ms)}`:'')(pairedMeals())}
     </section>
     <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used. The line shows how many times you logged it each week over the last ${USAGE_WEEKS} weeks; the columns show when you eat it, by the parts of the day in Settings.</p>
     <label class="row"><span class="small">Sort</span><select id="foodSort" style="flex:1 1 200px">
@@ -3259,6 +3369,7 @@ document.addEventListener('submit',e=>{
     const items=d.items.filter(i=>foodById(i.foodId)&&i.qty>0); if(!items.length){toast('Add at least one food.');return}
     const old=d.id&&recipeById(d.id);
     putRecord('recipes',{...(old||{uses:0}),id:old?old.id:'r'+uid6(),name:d.name,servings:d.servings,items:items.map(({foodId,qty,unit})=>({foodId,qty,unit}))});
+    if(d.hint) mealHint(d.hint,'off');
     toast(old?'Recipe saved':`Created ${d.name}`); closeSheet(); render(); return}
   if(id==='copyDayForm'){
     const to=f.get('to'), ids=copyPicks(); if(!to){toast('Pick a day.');return} if(!ids.length){toast('Pick at least one food.');return}
@@ -3361,6 +3472,9 @@ document.addEventListener('click',async e=>{
   if(d.pickext){const [k,i]=d.pickext.split(':'), f=(search[k]||[])[+i]; if(f){openSheet({type:'food',food:rememberLookup(f)}); refreshResults()} return}
   if(d.pickrecipe){const r=recipeById(d.pickrecipe); if(r) openSheet({type:'recipe',recipe:r}); return}
   if(d.common){toggleCommon(d.common); render(); return}
+  if(d.mealsave){saveMealDraft(d.mealsave); render(); return}
+  if(d.mealno){mealHint(d.mealno,'off'); toast('Got it. These won’t be suggested again.'); render(); return}
+  if(d.meallater){mealHint(d.meallater,'later'); toast('You’ll find it under Foods, and at your weekly check-in.'); render(); return}
   if(d.quickfood){const f=foodById(d.quickfood); if(!f) return; const p=defaultPortion(f), rec=logPortion(f,p.qty,p.unit); toast(`Added ${itemText(f,p)} of ${rec.name}`); render(); return}
   if(d.todayfood){const f=foodById(d.todayfood); if(!f) return; const p=defaultPortion(f); let rec; logToToday(()=>rec=logPortion(f,p.qty,p.unit)); toast(`Added ${itemText(f,p)} of ${rec.name} to today`); render(); return}
   if(d.todayrecipe){const r=recipeById(d.todayrecipe); if(!r) return; const s=r.lastServings||1; logToToday(()=>logRecipe(r,s)); toast(`Added ${servingsText(s)} of ${r.name} to today`); render(); return}
