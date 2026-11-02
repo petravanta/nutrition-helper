@@ -276,7 +276,13 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .todaylay{display:flex;flex-direction:column;gap:16px}
 .todaylay.withfreq>.stack{display:contents}
 .todaylay .late,.todaylay .micros{order:2}
-.todaylay .common{order:1}
+.todaylay .common,.todaylay .gap{order:1}
+.gap .gapleft{color:var(--muted)}
+.gap .gapleft b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
+.gap .tiles{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.gap .tile{background:var(--bg)}
+.tile .tm{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .tm b{font-weight:600;color:var(--ink)}
 /* Common meals: one tap row each, ticked once eaten on the day showing */
 .commons{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
 .cm{display:grid;grid-template-columns:24px minmax(0,1fr);grid-template-rows:auto auto;column-gap:8px;align-items:center;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 10px;color:var(--ink);min-height:44px}
@@ -1012,6 +1018,43 @@ function saveMealDraft(key){
   mealHint(key,'later');   // seen: the editor's Save is what puts it away for good
   openSheet({type:'editRecipe',draft:{name:mealName(m),servings:1,items:m.items.map(i=>({...i})),hint:key}});
 }
+// Fill the gap: of the foods and recipes you usually have, the ones whose usual portion best closes what's left of the
+// day's budget. Each macro counts by how far it is from its target as a share of it: short of a target or a floor costs,
+// going over a target or a ceiling costs more, short of a ceiling or over a floor costs (almost) nothing. A pick scores
+// by how much it lowers that, weighted a little by how usual it is for this time of day; ones already logged that day
+// count for less. Nothing shows until something's logged, or once the day is about done.
+const GAP_W={under:{target:1,floor:1,ceiling:0},over:{target:2,floor:0.15,ceiling:3}};
+function gapCost(tot,add,t){
+  let c=0;
+  for(const m of MACROS){const T=t[m.k]; if(!(T>0)) continue;
+    const d=(T-(tot[m.k]||0)-(add[m.k]||0))/T, k=macroKind(m), w=d>0?GAP_W.under[k]:GAP_W.over[k];
+    c+=(w??1)*d*d}
+  return c;
+}
+function gapLeft(d){
+  const t=targetsFor(d), tot=totalsFor(d), out={};
+  for(const m of MACROS){const left=(t[m.k]||0)-(tot[m.k]||0); if(macroKind(m)!=='ceiling'&&left>0) out[m.k]=left}
+  return out;
+}
+const GAP_MIN_KCAL=120;
+function gapPicks(d,n=4){
+  if(building||d>todayKey()) return [];
+  const t=targetsFor(d), tot=totalsFor(d), list=entriesFor(d);
+  if(!list.length||(t.kcal||0)-(tot.kcal||0)<GAP_MIN_KCAL) return [];
+  const base=gapCost(tot,{},t); if(base<0.01) return [];
+  const sc=usageScores(), top=Math.max(...sc.values(),1), had=new Set(list.map(e=>e.recipe?'r:'+e.recipe.id:'f:'+e.foodId)), out=[];
+  for(const [key,score] of sc){
+    if(score<0.15) continue;
+    const r=key[0]==='r', item=r?recipeById(key.slice(2)):foodById(key.slice(2)); if(!item) continue;
+    let add,lbl;
+    if(r){const s=item.lastServings||1; add=recipeTotals(item,s); lbl=servingsText(s)}
+    else{const p=defaultPortion(item); add=nutrientsFor(item,baseAmount(item,p.qty,p.unit)); lbl=portionText(item,p)}
+    if(!(add.kcal>0)) continue;
+    const gain=(base-gapCost(tot,add,t))/base; if(gain<0.08) continue;
+    out.push({key,kind:r?'recipe':'food',item,add,lbl,gain,rank:gain*(0.6+0.4*Math.sqrt(score/top))*(had.has(key)?0.6:1)});
+  }
+  return out.sort((a,b)=>b.rank-a.rank).slice(0,n);
+}
 // Foods opened from Open Food Facts, USDA or a barcode are kept so they show on the shortlist and in My foods
 // without another lookup. Only the latest ones that were never logged are kept.
 const LOOKUPS_KEPT=60;
@@ -1550,6 +1593,27 @@ function toggleCommon(key){
   if(c.kind==='recipe'){const sv=c.item.lastServings||1; logRecipe(c.item,sv,opt); toast(`Added ${servingsText(sv)} of ${c.item.name}`)}
   else{const p=defaultPortion(c.item); logPortion(c.item,p.qty,p.unit,null,opt); toast(`Added ${itemText(c.item,p)} of ${c.item.name}`)}
 }
+// What's left of the day and the usual foods that best fill it; + adds the usual portion to the day showing
+// The macros a pick adds, the one the day is shortest of in bold
+function gapAddText(a){
+  const l=gapLeft(day), t=targetsFor(day), short=k=>(l[k]||0)/(t[k]||1);
+  const top=['protein','fat','carbs'].sort((x,y)=>short(y)-short(x))[0];
+  return [['protein','P'],['fat','F'],['carbs','C']].map(([k,s])=>k===top&&short(k)>0?`<b>${s} ${fmt(a[k])}</b>`:`${s} ${fmt(a[k])}`).join(' · ');
+}
+function gapTile(x){
+  const r=x.kind==='recipe', it=x.item, pick=r?`data-pickrecipe="${it.id}"`:`data-pickfood="${it.id}"`, add=r?`data-quickrecipe="${it.id}"`:`data-quickfood="${it.id}"`;
+  return `<div class="tile"><button class="tpick" ${pick}><span class="tn">${esc(it.name)}</span><span class="tq">${esc(x.lbl)} · <b>${fmt(x.add.kcal)}</b> kcal</span><span class="tm" title="Protein, fat and carbs it adds, in grams">${gapAddText(x.add)}</span></button><button class="tadd" ${add} aria-label="Add ${esc(x.lbl)} of ${esc(it.name)}">+</button></div>`;
+}
+function gapLeftText(d){
+  const l=gapLeft(d);
+  return MACROS.filter(m=>l[m.k]>=1).map(m=>`<b>${fmt(l[m.k])}</b>${m.k==='kcal'?' kcal':' g '+m.n.toLowerCase()}`).join(' · ');
+}
+function gapPanel(picks){
+  if(!picks.length) return '';
+  return `<section class="panel stack gap" aria-label="Fill the gap"><div class="row" style="justify-content:space-between;align-items:baseline"><h3>Fill the gap</h3><span class="small muted">from what you usually have</span></div>
+    <p class="small gapleft">Left: ${gapLeftText(day)}</p>
+    <div class="tiles">${picks.map(gapTile).join('')}</div></section>`;
+}
 function viewToday(){
   const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), fq=freqPanel();
   return `<div class="todaylay${fq?' withfreq':''}${state.settings.freqShut?' freqshut':''}"><div class="stack">
@@ -1563,6 +1627,7 @@ function viewToday(){
     ${day===todayKey()&&checkinDue()?checkinBanner():mealPrompt()}
     <section class="budget" aria-label="Daily budget">${MACROS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
     ${commonPanel()}
+    ${gapPanel(gapPicks(day))}
     ${microsPanel()}
     <section class="panel stack late">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
@@ -1901,11 +1966,13 @@ function recipeMatches(q){
 }
 // Before typing: suggestions for this time of day, then recipes, then the latest foods logged or looked up
 function shortlistHtml(){
-  const sug=building?[]:suggestions(), inSug=new Set(sug.map(x=>x.item.id));
+  const gap=gapPicks(day,4), inGap=new Set(gap.map(x=>x.item.id));
+  const sug=building?[]:suggestions(10+gap.length).filter(x=>!inGap.has(x.item.id)).slice(0,10), inSug=new Set([...sug,...gap].map(x=>x.item.id));
   const recipes=building?[]:[...state.recipes].filter(r=>!inSug.has(r.id)).sort((a,b)=>(b.lastUsed||b.u||'').localeCompare(a.lastUsed||a.u||'')).slice(0,5);
   const recent=state.foods.filter(f=>lastTouched(f)&&!inSug.has(f.id)).sort((a,b)=>lastTouched(b).localeCompare(lastTouched(a))).slice(0,12);
-  if(!sug.length&&!recipes.length&&!recent.length) return `<p class="note">Type a food to search your foods, Open Food Facts and USDA, or scan a barcode.</p>`;
-  return `${sug.length?`<div class="rgroup"><h4>Suggested for now</h4><div class="tiles">${sug.map(suggestionTile).join('')}</div></div>`:''}
+  if(!gap.length&&!sug.length&&!recipes.length&&!recent.length) return `<p class="note">Type a food to search your foods, Open Food Facts and USDA, or scan a barcode.</p>`;
+  return `${gap.length?`<div class="rgroup"><h4>Fills what’s left</h4><div class="tiles">${gap.map(gapTile).join('')}</div></div>`:''}
+    ${sug.length?`<div class="rgroup"><h4>Suggested for now</h4><div class="tiles">${sug.map(suggestionTile).join('')}</div></div>`:''}
     ${recipes.length?`<div class="rgroup"><h4>Recipes</h4>${recipes.map(slimRecipe).join('')}</div>`:''}
     ${recent.length?`<div class="rgroup"><h4>Recent</h4>${recent.map(slimFood).join('')}</div>`:''}`;
 }
