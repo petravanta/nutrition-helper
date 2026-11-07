@@ -237,11 +237,11 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .spark{vertical-align:middle;margin-right:4px;overflow:visible}
 .spark polyline{fill:none;stroke:var(--c-a);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
 .spark circle{fill:var(--c-a)} .spark .base{stroke:var(--line);stroke-width:1}
-.tod{display:flex;gap:3px;align-items:flex-end}
-.tod span{display:flex;flex-direction:column;align-items:center;gap:2px;width:15px}
-.tod i{display:block;width:11px;border-radius:2px 2px 0 0;background:var(--c-a);min-height:1px}
+.tod{display:flex;gap:2px;align-items:flex-end}
+.tod span{display:flex;flex-direction:column;align-items:center;gap:2px;width:11px}
+.tod i{display:block;width:8px;border-radius:2px 2px 0 0;background:var(--c-a);min-height:1px}
 .tod i.z{background:var(--line)}
-.tod b{font:500 9px/1 var(--f-mono);color:var(--faint)}
+.tod b{font:500 9px/1 var(--f-mono);color:var(--faint);white-space:nowrap;letter-spacing:-.5px;min-height:9px}
 .tod b.on{color:var(--ink);font-weight:700}
 .rlist .ent{grid-template-columns:minmax(0,1fr) auto auto auto}
 .dpset{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
@@ -1077,12 +1077,14 @@ function partName(h,i){
   const a=h[i], b=h[(i+1)%h.length], same=a!==0&&a!==12&&b!==0&&b!==12&&(a<12)===(b<12);
   return same?`${a%12||12}–${hourName(b)}`:`${hourName(a)}–${hourName(b)}`;
 }
+// The Foods page counts when you eat each food in fixed 3-hour blocks from midnight, whatever the parts of the day are
+const TOD_BLOCKS=[0,3,6,9,12,15,18,21];
 const partOf=(hour,h)=>{let i=h.length-1; for(let j=0;j<h.length;j++) if(hour>=h[j]) i=j; return i};
-// How often each food and recipe has been logged, when last, and in which part of the day. Only logs made on the day
+// How often each food and recipe has been logged, when last, and in which 3-hour block of the day. Only logs made on the day
 // eaten tell the time; a recipe counts once per log, and each of its foods counts too. Imported daily totals don't count.
 const USAGE_WEEKS=12;   // weeks the Foods trendline covers, the latest ending today
 function usageStats(){
-  const h=dayParts(), st=new Map(), groups=new Set(), t0=parseDay(todayKey());
+  const h=TOD_BLOCKS, st=new Map(), groups=new Set(), t0=parseDay(todayKey());
   const add=(key,e)=>{
     let s=st.get(key); if(!s) st.set(key,s={n:0,last:'',parts:h.map(()=>0),weeks:Array(USAGE_WEEKS).fill(0)});
     s.n++; if(e.date>s.last) s.last=e.date;
@@ -1111,13 +1113,13 @@ function weeksSpark(s){
   return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}"><title>${label}</title>
     <line class="base" x1="2" x2="${W-2}" y1="${H-2}" y2="${H-2}"/><polyline points="${pts}"/><circle cx="${x(USAGE_WEEKS-1)}" cy="${y(last)}" r="2"/></svg>`;
 }
-// A small column per part of the day, scaled to its busiest part
+// A small column per 3-hour block, scaled to its busiest block; labels every 6 hours, plus the block sorted by
 function partsChart(s,hi=-1){
   if(!s) return '';
-  const h=dayParts(), max=Math.max(...s.parts), tot=s.parts.reduce((a,b)=>a+b,0);
+  const h=TOD_BLOCKS, max=Math.max(...s.parts), tot=s.parts.reduce((a,b)=>a+b,0);
   const label=tot?h.map((_,i)=>`${partName(h,i)}: ${s.parts[i]}`).join(', '):'No time of day known';
   return `<div class="tod" role="img" aria-label="When it's eaten. ${label}" title="${label}">${h.map((x,i)=>
-    `<span><i class="${s.parts[i]?'':'z'}" style="height:${tot?Math.max(1,Math.round(22*s.parts[i]/max)):1}px"></i><b${i===hi?' class="on"':''}>${hourShort(x)}</b></span>`).join('')}</div>`;
+    `<span><i class="${s.parts[i]?'':'z'}" style="height:${tot?Math.max(1,Math.round(22*s.parts[i]/max)):1}px"></i><b${i===hi?' class="on"':''}>${i%2&&i!==hi?'':hourShort(x)}</b></span>`).join('')}</div>`;
 }
 // A recipe: {id, name, servings (how many it makes), items:[{foodId, qty, unit}], lastServings, uses, lastUsed}.
 // It logs as its foods, scaled by the servings eaten, so every nutrient stays tracked per food.
@@ -2278,8 +2280,8 @@ const todayRecipe=r=>{const s=r.lastServings||1; return todayButton(`data-todayr
 function logToToday(fn){const was=day, wt=addTime; day=todayKey(); addTime=null; try{fn()}finally{day=was; addTime=wt}}
 let foodSort=(()=>{try{return sessionStorage.getItem('nh.foodSort')||'used'}catch(_){return 'used'}})();
 function viewFoods(){
-  // Sorting by a part of the day ranks by times eaten in it, then by the share of all logs it holds
-  const st=usageStats(), u=k=>st.get(k), h=dayParts(), pi=foodSort.startsWith('part:')?h.indexOf(+foodSort.slice(5)):-1;
+  // Sorting by a 3-hour block ranks by times eaten in it, then by the share of all logs it holds
+  const st=usageStats(), u=k=>st.get(k), h=TOD_BLOCKS, pi=foodSort.startsWith('part:')?h.indexOf(+foodSort.slice(5)):-1;
   const sorter=p=>{const s=x=>u(p+x.id)||{n:0,last:'',parts:[]}, name=(a,b)=>a.name.localeCompare(b.name), by={
     name,
     used:(a,b)=>s(b).n-s(a).n||name(a,b),
@@ -2300,10 +2302,10 @@ function viewFoods(){
       :`<p class="small muted">Group foods you often eat together, then log them in one go. Build one here, or log a meal and use <b>Save as recipe</b> on Today.</p>`}
       ${(ms=>ms.length?`<p class="small muted" style="margin:8px 0 0"><b>Often logged together.</b> These look like regular meals. Save one as a recipe, or tell the app it isn’t a meal.</p>${mealList(ms)}`:'')(pairedMeals())}
     </section>
-    <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used. The line shows how many times you logged it each week over the last ${USAGE_WEEKS} weeks; the columns show when you eat it, by the parts of the day in Settings.</p>
+    <p class="small muted">Foods you’ve created, logged or looked up. Each remembers the amount and unit you last used. The line shows how many times you logged it each week over the last ${USAGE_WEEKS} weeks; the columns show when you eat it, in 3-hour blocks from midnight.</p>
     <label class="row"><span class="small">Sort</span><select id="foodSort" style="flex:1 1 200px">
       ${[['used','Most used'],['recent','Most recent'],['name','Name']].map(([k,n])=>`<option value="${k}"${pi<0&&foodSort===k?' selected':''}>${n}</option>`).join('')}
-      <optgroup label="By part of the day">${h.map((x,i)=>`<option value="part:${x}"${i===pi?' selected':''}>Most eaten ${partName(h,i)}</option>`).join('')}</optgroup></select></label>
+      <optgroup label="By time of day">${h.map((x,i)=>`<option value="part:${x}"${i===pi?' selected':''}>Most eaten ${partName(h,i)}</option>`).join('')}</optgroup></select></label>
     <section class="panel">${list.length?list.map(f=>`<div class="ent">
         <div><button class="nm" data-editfood="${f.id}">${esc(f.name)}</button>${f.brand?` <span class="fb small muted">${esc(f.brand)}</span>`:''}
           <div class="meta">${per100Summary(f)}</div>
@@ -2440,7 +2442,7 @@ function readTargetsForm(){
 function dayPartsSettings(){
   const h=dayParts();
   return `<section class="panel stack" id="dayPartsPanel"><h3>Parts of the day</h3>
-    <p class="small muted">The Foods page shows when you eat each food in these parts. Each runs from its start to the next one.</p>
+    <p class="small muted">Today groups your foods by time under these parts, and copying a day offers them the same way. Each runs from its start to the next one.</p>
     <form id="dayPartsForm" autocomplete="off"><div>
       ${h.map((x,i)=>`<div class="dpset"><span class="small">${partName(h,i)}</span>
         <select name="h" aria-label="Part ${i+1} starts at">${Array.from({length:24},(_,k)=>`<option value="${k}"${k===x?' selected':''}>${hourName(k)}</option>`).join('')}</select>
