@@ -275,7 +275,14 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 /* Frequent foods: a column beside Today on a wide screen (folded to a thin tab), a two-row strip above the list on a phone */
 .todaylay{display:flex;flex-direction:column;gap:16px}
 .todaylay.withfreq>.stack{display:contents}
-.todaylay .late,.todaylay .micros{order:2}
+.todaylay .late,.todaylay .micros,.todaylay .water{order:2}
+.water{gap:8px}
+.water .mic{border-top:0;padding:0}
+.water h3.nm{margin:0}
+.wadd{gap:6px}
+.wother{gap:6px;flex-wrap:nowrap}
+.wother input{width:84px}
+.wlogs{gap:6px}
 .todaylay .common,.todaylay .gap{order:1}
 .gap .gapleft{color:var(--muted)}
 .gap .gapleft b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
@@ -668,14 +675,15 @@ function defaultSettings(){return{
   macroKinds:{},   // {carbs:'ceiling',…}: macros you track as at most / at least / aim for, over the usual
   trendMicros:['sodium','cholesterol'],   // micronutrients charted on Trends, in order
   chartHide:{},   // {weight:['scale'],…}: series switched off in a chart's legend
+  water:{target:null,unit:'',food:true,show:true},   // daily water target in ml (null: the usual one), 'ml' or 'floz' (empty follows body weight), count water in logged food, show on Today
   dayParts:[...DEFAULT_DAY_PARTS],
   mealHints:{off:[],shown:[]},   // foods often logged together: sets saved or turned down, and sets already prompted for   // start hours of the parts of the day the Foods page breaks usage into
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
 };}
-const LISTS=['entries','weighins','foods','checkins','recipes','measurements'];
-function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],checkins:[],recipes:[],measurements:[],deleted:[]}}
+const LISTS=['entries','weighins','foods','checkins','recipes','measurements','water'];
+function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],checkins:[],recipes:[],measurements:[],water:[],deleted:[]}}
 let state=emptyState();
 
 function lsGet(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}}
@@ -702,6 +710,7 @@ function normalize(j){
   }
   if(!s.settings.macroKinds||typeof s.settings.macroKinds!=='object') s.settings.macroKinds={};
   s.settings.macroSplit=cleanSplit(s.settings.macroSplit);
+  const wa=s.settings.water||{}; s.settings.water={target:wa.target>0?+wa.target:null,unit:['ml','floz'].includes(wa.unit)?wa.unit:'',food:wa.food!==false,show:wa.show!==false};
   const mh=s.settings.mealHints||{}; s.settings.mealHints={off:Array.isArray(mh.off)?mh.off:[],shown:Array.isArray(mh.shown)?mh.shown:[]};
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
   return s;
@@ -760,6 +769,24 @@ const fromLen=v=>lUnit()==='in'?v*2.54:v;
 const fmtL=cm=>cm==null?'–':toLen(cm).toFixed(1);
 const measuresSorted=()=>[...state.measurements].sort((a,b)=>a.date<b.date?-1:1);
 const measureOn=d=>state.measurements.find(m=>m.date===d);
+
+/* ---------------- Water ---------------- */
+// Glasses of water are their own records (state.water: {id, date, ts, ml}), apart from food entries, so they never turn up
+// in suggestions, Common meals, Fill the gap or Frequent foods. Water the databases report in the foods and drinks you log
+// (the 'water' nutrient, 1 g = 1 ml) counts toward the day too, unless that's switched off in Settings.
+const ML_PER_FLOZ=29.5735;
+const waterUnit=()=>state.settings.water.unit||(wUnit()==='lb'?'floz':'ml');
+const waterUnitName=u=>u==='floz'?'fl oz':'ml';
+const toWater=ml=>waterUnit()==='floz'?ml/ML_PER_FLOZ:ml;
+const fromWater=v=>waterUnit()==='floz'?v*ML_PER_FLOZ:v;
+const fmtWater=ml=>fmt(toWater(ml),0);
+const WATER_QUICK={ml:[250,500],floz:[8,16]};
+// The usual target: the US National Academies' adequate intake of water from all sources (2.7 l for women, 3.7 l for men,
+// in between when the profile doesn't say), or about 80% of it when only what you drink counts
+function waterUsual(){const x=state.settings.profile.sex, all=x==='female'?2700:x==='male'?3700:3200; return state.settings.water.food?all:Math.round(all*0.8/50)*50}
+const waterTarget=()=>state.settings.water.target||waterUsual();
+const waterLogs=d=>state.water.filter(w=>w.date===d).sort((a,b)=>(a.ts||'')<(b.ts||'')?-1:1);
+function waterOn(d){const drunk=waterLogs(d).reduce((a,w)=>a+(+w.ml||0),0), food=state.settings.water.food?dayNutrients(d).water||0:0; return {drunk,food,all:drunk+food}}
 // A site's value on a day: its latest check-in on or before that day
 function measureAsOf(site,d,before){
   let hit=null; for(const m of measuresSorted()){if(before?m.date>=d:m.date>d) break; if(m.v&&m.v[site]!=null) hit={cm:m.v[site],date:m.date}}
@@ -1278,7 +1305,7 @@ function model(){
   const intake={}, scale={};
   for(const e of state.entries){const d=intake[e.date]||(intake[e.date]={n:0}); d.n++; METRICS.forEach(m=>d[m.k]=(d[m.k]||0)+(Number(e[m.k])||0))}
   for(const w of state.weighins) scale[w.date]=w;
-  const all=[...Object.keys(intake),...Object.keys(scale)].sort(), today=todayKey();
+  const all=[...Object.keys(intake),...Object.keys(scale),...state.water.map(w=>w.date)].sort(), today=todayKey();
   const days=[];
   if(all.length){
     let trend=null, fatTrend=null, tdee=null, dataDays=0;
@@ -1618,6 +1645,29 @@ function gapPanel(picks){
     <p class="small gapleft">Left: ${gapLeftText(day)}</p>
     <div class="tiles">${picks.map(gapTile).join('')}</div></section>`;
 }
+function waterPanel(){
+  if(!state.settings.water.show) return '';
+  const u=waterUnit(), un=waterUnitName(u), w=waterOn(day), tgt=waterTarget(), b=budgetState('floor',toWater(w.all),toWater(tgt),un), logs=waterLogs(day);
+  const when=x=>{const t=entryTime(x); return t?` · ${clock(t)}`:''};
+  return `<section class="panel stack water" aria-label="Water">
+    <div class="mic ${b.cls}"><h3 class="nm">Water</h3>
+      <span class="v">${fmtWater(w.all)}<small> / ${fmtWater(tgt)} ${un}</small></span>
+      <div class="meter" role="img" aria-label="Water: ${fmtWater(w.all)} of ${fmtWater(tgt)} ${un}"><i style="width:${b.pct}%"></i></div>
+      <span class="rem">${b.rem}${w.food>0?` · ${fmtWater(w.food)} ${un} from food`:''}</span></div>
+    <form id="waterForm" class="row wadd" autocomplete="off">
+      ${WATER_QUICK[u].map(q=>`<button type="button" class="btn sm" data-water="${q}">+${q} ${un}</button>`).join('')}
+      <span class="row wother"><input type="number" name="amt" inputmode="decimal" step="any" min="0" placeholder="Other" aria-label="Other amount of water (${un})">
+      <span class="seg" role="group" aria-label="Water unit">${['ml','floz'].map(x=>`<button type="button" data-wateru="${x}" aria-pressed="${u===x}">${waterUnitName(x)}</button>`).join('')}</span>
+      <button class="btn sm primary" type="submit">Add</button></span>
+    </form>
+    ${logs.length?`<div class="row wlogs">${logs.map(x=>`<button class="chip" data-rmwater="${x.id}" aria-label="Remove ${fmtWater(x.ml)} ${un}${when(x)}" title="Remove">${fmtWater(x.ml)} ${un}${when(x)} ×</button>`).join('')}</div>`:''}
+  </section>`;
+}
+function logWater(v){
+  const ml=Math.round(fromWater(v)); if(!(ml>0)) return;
+  putRecord('water',{id:'w'+uid6(),date:day,ts:day===todayKey()?nowIso():new Date(parseDay(day).setHours(12)).toISOString(),ml});
+  toast(`Added ${fmtWater(ml)} ${waterUnitName(waterUnit())} of water`);
+}
 function viewToday(){
   const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), gap=gapPicks(day), fq=freqPanel(gap);
   return `<div class="todaylay${fq?' withfreq':''}${state.settings.freqShut?' freqshut':''}"><div class="stack">
@@ -1633,6 +1683,7 @@ function viewToday(){
     ${commonPanel()}
     ${gapPanel(gap)}
     ${microsPanel()}
+    ${waterPanel()}
     <section class="panel stack late">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
         <div class="row">${list.length?sortPicker():''}${list.length?'<button class="btn sm ghost" data-act="copyDay">Copy</button>':''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
@@ -2458,6 +2509,20 @@ function setDayParts(h){
   h=[...new Set(h)].sort((a,b)=>a-b); if(h.length<2){toast('Keep at least two parts of the day.'); return false}
   state.settings.dayParts=h; touchSettings(); return true;
 }
+function waterSettings(){
+  const W=state.settings.water, u=waterUnit(), un=waterUnitName(u);
+  return `<section class="panel stack" id="waterSettings"><h3>Water</h3>
+    <p class="small muted">Leave the target empty for the usual one: the US National Academies\u2019 ${W.food?'adequate intake from food and drink':'adequate intake, less the fifth that usually comes from food'} (${fmtWater(waterUsual())} ${un} a day${state.settings.profile.sex?'':' until your profile says female or male'}).</p>
+    <form id="waterSetForm" class="stack" autocomplete="off">
+      <div class="row"><label class="small" style="min-width:110px" for="wTarget">Daily target</label>
+        <input type="number" id="wTarget" name="target" inputmode="decimal" step="any" min="0" value="${W.target?Math.round(toWater(W.target)):''}" placeholder="${Math.round(toWater(waterUsual()))}" style="width:100px"> <span class="small">${un}</span>
+        <span class="seg" role="group" aria-label="Water unit">${['ml','floz'].map(x=>`<button type="button" data-wateru="${x}" aria-pressed="${u===x}">${waterUnitName(x)}</button>`).join('')}</span></div>
+      <label class="small" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" name="food"${W.food?' checked':''}><span>Count the water in foods and drinks you log (when the food database lists it)</span></label>
+      <label class="small" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" name="show"${W.show?' checked':''}><span>Show water on Today</span></label>
+      <div class="row"><button class="btn primary" type="submit">Save</button></div>
+    </form>
+  </section>`;
+}
 function viewSettings(){
   const t=targetsFor(todayKey()), p=state.settings.unitPrefs;
   const unitSeg=(kind,label)=>`<div class="row"><span class="small" style="min-width:110px">${label}</span>
@@ -2466,6 +2531,7 @@ function viewSettings(){
     <h2>Settings</h2>
     ${targetsSettings()}
     ${dayPartsSettings()}
+    ${waterSettings()}
     <section class="panel stack"><h3>Profile</h3>
       <p class="small muted">Used for a starting estimate of your expenditure, before there\u2019s enough logging to measure it.</p>
       <form class="form" id="profileForm" autocomplete="off">
@@ -2532,7 +2598,13 @@ function chartRows(){
   // The micronutrients charted on Trends, summed per logged day from each entry's snapshot (u_<key>)
   const tm=trendMicros(), mic={};
   if(tm.length) for(const e of state.entries) if(e.date>=from&&e.date<=to){const d=mic[e.date]||(mic[e.date]={}); tm.forEach(c=>d[c.k]=(d[c.k]||0)+entryNut(e,c.k))}
-  const row=r=>{const tg=targetsFor(r.date); return {...Object.fromEntries(tm.flatMap(c=>[['u_'+c.k,r.intake?(mic[r.date]||{})[c.k]||0:null],['ul_'+c.k,c.lim]])),date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,bfTrend:r.fatTrend,tdee:r.tdee,goal:setpointOn(r.date),
+  // Water: glasses logged plus water in the day's food, from the first day any water was logged
+  const wFirst=state.water.reduce((a,w)=>!a||w.date<a?w.date:a,''), wl={}, wf={}, wt=waterTarget(), wFood=state.settings.water.food;
+  if(wFirst){for(const w of state.water) if(w.date>=from&&w.date<=to) wl[w.date]=(wl[w.date]||0)+(+w.ml||0);
+    if(wFood) for(const e of state.entries) if(e.date>=from&&e.date<=to) wf[e.date]=(wf[e.date]||0)+entryNut(e,'water')}
+  const wOn=d=>!!wFirst&&d>=wFirst&&d<=todayKey();
+  const row=r=>{const tg=targetsFor(r.date); return {w_drink:wOn(r.date)?wl[r.date]||0:null,w_food:wOn(r.date)&&wFood?wf[r.date]||0:null,w_t:wOn(r.date)?wt:null,
+    ...Object.fromEntries(tm.flatMap(c=>[['u_'+c.k,r.intake?(mic[r.date]||{})[c.k]||0:null],['ul_'+c.k,c.lim]])),date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,bfTrend:r.fatTrend,tdee:r.tdee,goal:setpointOn(r.date),
     net:r.intake&&r.tdee!=null?r.intake.kcal-r.tdee:null,
     ...Object.fromEntries(METRICS.map(m=>[m.k,r.intake?r.intake[m.k]:null])),...Object.fromEntries(METRICS.map(m=>['t_'+m.k,tg[m.k]]))}};
   if(!weekly) return {rows:sel.map(row),weekly};
@@ -2705,6 +2777,14 @@ function microTrends(rows,weekly){
     foot:(()=>{const v=rows.filter(r=>r['u_'+c.k]!=null); if(!v.length) return ''; const avg=v.reduce((a,r)=>a+r['u_'+c.k],0)/v.length;
       return `<p class="small muted">Average over this range: <b>${fmtNut(avg)} ${c.u}/day</b>${c.lim?`, ${fmt(100*avg/c.lim)}% of ${c.kind==='ceiling'?'your limit':c.kind==='floor'?'your minimum':'your target'} (${fmtNut(c.lim)} ${c.u})`:''}.</p>`})()})).join('');
 }
+function waterTrend(rows,weekly){
+  if(!state.water.length) return '';
+  const u=waterUnit(), un=waterUnitName(u), conv=toWater, food=state.settings.water.food;
+  const v=rows.filter(r=>r.w_drink!=null), avg=v.length?v.reduce((a,r)=>a+r.w_drink+(r.w_food||0),0)/v.length:null;
+  return chartCard({id:'water',title:`Water (${un})`,unit:un,dp:0,rows,weekly,zero:true,h:200,
+    series:[{k:'w_drink',name:'Drinks',mark:'stack',color:'b',conv},...(food?[{k:'w_food',name:'From food',mark:'stack',color:'c',conv}]:[]),{k:'w_t',name:'Target',mark:'step',color:'ink',conv}],
+    foot:avg==null?'':`<p class="small muted">Average over this range: <b>${fmtWater(avg)} ${un}/day</b>, ${fmt(100*avg/waterTarget())}% of your target (${fmtWater(waterTarget())} ${un}).</p>`});
+}
 function viewTrends(){
   const {rows,weekly}=chartRows(), wconv=v=>toDisp(v), mc=measureChart();
   const mk=(id,title,unit,dp,series,extra={})=>chartCard({id,title,unit,dp,rows,weekly,series,...extra});
@@ -2725,6 +2805,7 @@ function viewTrends(){
         return `<p class="small muted">Average ${avg>0?'surplus':'deficit'} over this range: <b>${fmt(Math.abs(avg))} kcal/day</b>, about ${fmtW(Math.abs(avg)*v.length*(weekly?7:1)/KCAL_PER_KG)} ${wUnit()} ${avg>0?'gained':'lost'} in all.</p>`})()})}
     ${mk('macros','Calories & macros','g',0,[{k:'protein',name:'Protein (g)',mark:'stack',color:'b'},{k:'fat',name:'Fat (g)',mark:'stack',color:'e'},{k:'carbs',name:'Carbs (g)',mark:'stack',color:'c'},
       {k:'kcal',name:'Calories',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240,toggle:true,units:true})}
+    ${waterTrend(rows,weekly)}
     ${microTrends(rows,weekly)}`
     :mc?'':`<p class="empty">Log food and weigh-ins to see trends here.</p>`}
     ${mc}
@@ -3428,6 +3509,10 @@ document.addEventListener('submit',e=>{
   e.preventDefault();
   const f=new FormData(e.target), id=e.target.id;
   if(id==='searchForm'){clearTimeout(search.timer); runSearch(); return}
+  if(id==='waterForm'){const v=num(f.get('amt')); if(!v||v<=0){toast('Enter an amount.');return} logWater(v); render(); return}
+  if(id==='waterSetForm'){const W=state.settings.water, v=num(f.get('target'));
+    W.target=v>0?Math.round(fromWater(v)):null; W.food=!!f.get('food'); W.show=!!f.get('show');
+    if(W.target===waterUsual()) W.target=null; touchSettings(); toast('Water saved'); render(); return}
   if(id==='moveForm'){const d=f.get('date'); if(!d){toast('Pick a date.');return} doMove(d,f.get('time')||null); return}
   if(id==='portionForm'){
     const qty=num(f.get('qty')), r=withDef(sheet.food,f.get('unit')); if(!qty||qty<=0){toast('Enter an amount.');return}
@@ -3604,6 +3689,9 @@ document.addEventListener('click',async e=>{
   if(d.lunit){state.settings.lengthUnit=d.lunit; touchSettings(); render(); return}
   if(d.rmweigh){dropRecord('weighins',d.rmweigh); toast('Weigh-in removed'); render(); return}
   if(d.wunit){state.settings.weightUnit=d.wunit; touchSettings(); render(); return}
+  if(d.water){logWater(+d.water); render(); return}
+  if(d.rmwater){dropRecord('water',d.rmwater); toast('Water removed'); render(); return}
+  if(d.wateru){state.settings.water.unit=d.wateru; touchSettings(); render(); return}
   if(d.unitpref){const [k,u]=d.unitpref.split(':'); state.settings.unitPrefs[k]=u; touchSettings(); render(); return}
   if(d.act==='resetAsk'){pendingDelete='ALL';render();return}
   if(d.act==='resetNo'){pendingDelete=null;render();return}
