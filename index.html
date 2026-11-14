@@ -2214,18 +2214,21 @@ function bodyColumns(sites){
 function drawLeaders(){
   const map=document.getElementById('bodyMap'); if(!map) return;
   const svg=map.querySelector('.bm-lines'), fig=map.querySelector('[data-bodyfig]');
-  // Set each box beside its spot on the body, nudged down where boxes would overlap
+  // Set each box beside its spot on the body, nudged down where boxes would overlap. A left/right pair (biceps,
+  // thighs...) is placed as one row so both boxes sit level, pushed down by whichever column is fuller.
   let fr=fig.getBoundingClientRect(), sc=fr.width/200, figTop=fr.top-map.getBoundingClientRect().top, bottom=fr.height+figTop;
-  for(const col of map.querySelectorAll('.bm-col')){
-    const labs=[...col.querySelectorAll('[data-msite]')]; let next=0;
-    col.classList.add('placed');
-    for(const lab of labs){
-      const k=lab.dataset.msite, ay=(BODY_MID_Y[k]?BODY_MID_Y[k]:bodyAnchor(k)[1])*sc+figTop, inp=lab.querySelector('input');
-      const off=inp.offsetTop+inp.offsetHeight/2, top=Math.max(next,ay-off);
-      lab.style.top=top+'px'; next=top+lab.offsetHeight+6;
-    }
-    col.style.height=next+'px'; bottom=Math.max(bottom,next);
+  const cols=[...map.querySelectorAll('.bm-col')], next=cols.map(()=>0), rows=new Map();
+  cols.forEach(c=>c.classList.add('placed'));
+  for(const lab of map.querySelectorAll('[data-msite]')){
+    const k=lab.dataset.msite, inp=lab.querySelector('input'), key=BODY_MID_Y[k]?k:k.slice(0,-1);
+    const it={lab,col:cols.indexOf(lab.closest('.bm-col')),ay:(BODY_MID_Y[k]?BODY_MID_Y[k]:bodyAnchor(k)[1])*sc+figTop,off:inp.offsetTop+inp.offsetHeight/2};
+    rows.has(key)?rows.get(key).push(it):rows.set(key,[it]);
   }
+  for(const row of [...rows.values()].sort((a,b)=>a[0].ay-b[0].ay)){
+    const top=Math.max(...row.map(it=>Math.max(next[it.col],it.ay-it.off)));
+    for(const it of row){it.lab.style.top=top+'px'; next[it.col]=Math.max(next[it.col],top+it.lab.offsetHeight+6)}
+  }
+  cols.forEach((c,i)=>{c.style.height=next[i]+'px'; bottom=Math.max(bottom,next[i])});
   map.style.minHeight=bottom+'px';
   const mr=map.getBoundingClientRect(); fr=fig.getBoundingClientRect();
   const focus=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('[data-msite]');
