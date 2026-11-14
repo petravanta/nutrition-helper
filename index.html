@@ -721,9 +721,10 @@ function normalize(j){
   if(!s.settings.macroKinds||typeof s.settings.macroKinds!=='object') s.settings.macroKinds={};
   s.settings.macroSplit=cleanSplit(s.settings.macroSplit);
   const wa=s.settings.water||{}; s.settings.water={target:wa.target>0?+wa.target:null,unit:['ml','floz'].includes(wa.unit)?wa.unit:'',food:wa.food!==false,show:wa.show!==false};
-  // Torso height came later: lists picked by hand get it once, so it shows up without hunting for it
-  if(Array.isArray(s.settings.measureSites)&&!s.settings.torsoAdded&&!s.settings.measureSites.includes('torso')) s.settings.measureSites.push('torso');
-  s.settings.torsoAdded=true;
+  // Sites that came later: lists picked by hand get each once, so it shows up without hunting for it
+  const added=new Set(s.settings.sitesAdded||(s.settings.torsoAdded?['torso']:[])); delete s.settings.torsoAdded;
+  for(const k of ['torso','inseam']) if(!added.has(k)){if(Array.isArray(s.settings.measureSites)&&!s.settings.measureSites.includes(k)) s.settings.measureSites.push(k); added.add(k)}
+  s.settings.sitesAdded=[...added];
   const mh=s.settings.mealHints||{}; s.settings.mealHints={off:Array.isArray(mh.off)?mh.off:[],shown:Array.isArray(mh.shown)?mh.shown:[]};
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
   return s;
@@ -768,10 +769,10 @@ const weighinOn=day=>state.weighins.find(w=>w.date===day);
 /* ---------------- Body measurements ---------------- */
 // A measurement check-in: {id, date, v:{site: cm}} holding only the sites measured that day. Sites left alone
 // carry forward from their last check-in, so slow movers (neck, calves) don't need re-measuring every time.
-const SITES=[['forehead','Forehead'],['neck','Neck'],['shoulders','Shoulders'],['torso','Torso height'],['chest','Chest'],['underbust','Underbust'],['armL','Left bicep'],['armR','Right bicep'],['forearmL','Left forearm'],['forearmR','Right forearm'],
+const SITES=[['forehead','Forehead'],['neck','Neck'],['shoulders','Shoulders'],['torso','Torso height'],['inseam','Inseam'],['chest','Chest'],['underbust','Underbust'],['armL','Left bicep'],['armR','Right bicep'],['forearmL','Left forearm'],['forearmR','Right forearm'],
   ['wristL','Left wrist'],['wristR','Right wrist'],['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf'],
   ['ankleL','Left ankle'],['ankleR','Right ankle']];
-const DEFAULT_SITES=['neck','torso','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
+const DEFAULT_SITES=['neck','torso','inseam','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
 // Underbust is offered when the profile isn't set to male, and shown by default when it's female
 const siteOffered=k=>k!=='underbust'||state.settings.profile.sex!=='male';
 const defaultSites=()=>state.settings.profile.sex==='female'?[...DEFAULT_SITES,'underbust']:DEFAULT_SITES;
@@ -2182,8 +2183,8 @@ const BODY_SHAPES={
   '':{sh:46,ch:41,wa:33,hi:46,leg:20,th:36,arm:22}};
 const bodyShape=()=>BODY_SHAPES[state.settings.profile.sex]||BODY_SHAPES[''];
 // Where the tape goes: midline sites as [y, half-width], side sites as [x, y] on the person's left (the right mirrors it)
-const BODY_MID_Y={forehead:30,neck:78,shoulders:96,chest:122,torso:160,underbust:142,waist:180,abdomen:200,hips:232};
-function bodyMid(k){const b=bodyShape(), hw={forehead:21,neck:11,torso:0,shoulders:b.sh+1,chest:b.ch,underbust:b.ch-5,waist:b.wa-1,abdomen:b.wa+3,hips:b.hi-1}[k]; return [BODY_MID_Y[k],hw]}
+const BODY_MID_Y={forehead:30,neck:78,shoulders:96,chest:122,torso:160,underbust:142,waist:180,abdomen:200,hips:232,inseam:350};
+function bodyMid(k){const b=bodyShape(), hw={forehead:21,neck:11,torso:0,inseam:0,shoulders:b.sh+1,chest:b.ch,underbust:b.ch-5,waist:b.wa-1,abdomen:b.wa+3,hips:b.hi-1}[k]; return [BODY_MID_Y[k],hw]}
 function bodyAnchor(k){
   if(BODY_MID_Y[k]) return null;
   const b=bodyShape(), side={arm:[100+b.sh+10,140],forearm:[100+b.sh+20,222],wrist:[100+b.sh+23,262],thigh:[100+b.leg+4,290],calf:[100+b.leg,385],ankle:[100+b.leg-2,438]}[k.slice(0,-1)];
@@ -2205,6 +2206,7 @@ function bodySvg(){
     <ellipse cx="100" cy="38" rx="22" ry="28" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/>
     ${draw('fl',0)}<path d="${torso}" fill="var(--sunk)"/><rect x="92.5" y="70" width="15" height="24" fill="var(--sunk)"/>${bust}
     ${trackedSites().includes('torso')?'<path class="tape" d="M100,90V250M94,90H106M94,250H106"/>':''}
+    ${trackedSites().includes('inseam')?'<path class="tape" d="M100,256V462M94,256H106M94,462H106"/>':''}
   </svg>`;
 }
 // Which column each tracked site's box sits in: right-side limbs left of the figure, left-side limbs right of it (pairs level),
