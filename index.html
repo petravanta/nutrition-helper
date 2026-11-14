@@ -381,12 +381,15 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 @media (max-width:374px){.wform label.field{grid-column:1/-1}}   /* small phones: weight and body fat each get a full row */
 .stepper .btn{flex:none;width:38px;height:38px;padding:0;font-size:20px;line-height:1;touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-user-select:none}
 .mtbl td,.mtbl th{text-align:right}.mtbl td:first-child,.mtbl th:first-child{text-align:left}
-.bodymap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,200px) minmax(0,1fr);gap:0 14px;align-items:start}
+.bodymap{position:relative;display:grid;grid-template-columns:minmax(0,150px) minmax(0,150px) minmax(120px,200px) minmax(0,150px) minmax(0,150px);justify-content:center;gap:0 14px;align-items:start}
+.bodymap>*{grid-row:1}.bm-col.fast{grid-column:1}.bm-col.l{grid-column:2}.bm-fig{grid-column:3}.bm-col.r{grid-column:4}.bm-col.slow{grid-column:5}
+/* Narrower screens: the outer columns stack into the limb columns beside the figure (drawLeaders places them as one) */
+@media (max-width:760px){.bodymap{grid-template-columns:minmax(0,1fr) minmax(120px,200px) minmax(0,1fr)}.bm-col.fast,.bm-col.l{grid-column:1}.bm-fig{grid-column:2}.bm-col.r,.bm-col.slow{grid-column:3}}
 .bm-col{display:flex;flex-direction:column;gap:8px;position:relative;z-index:1}
 .bm-col.placed label.field{position:absolute;left:0;right:0}
-.bm-col.l label.field{margin-left:auto;text-align:right}
-.bm-col label.field{width:100%;max-width:150px}
-.bm-col.l.placed label.field{left:auto}
+.bm-col.l label.field,.bm-col.fast label.field{margin-left:auto;text-align:right}
+.bm-col label.field{width:100%;max-width:150px;background:var(--surface);border-radius:6px}   /* leaders from the outer columns tuck behind limb boxes */
+.bm-col.l.placed label.field,.bm-col.fast.placed label.field{left:auto}
 .bm-col label.field input{padding-top:6px;padding-bottom:6px}
 .bm-col label.field .was{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:0}
 .bm-fig{padding-top:8px}
@@ -2204,16 +2207,14 @@ function bodySvg(){
     ${trackedSites().includes('torso')?'<path class="tape" d="M100,90V250M94,90H106M94,250H106"/>':''}
   </svg>`;
 }
-// Which column each tracked site's box sits in: right-side sites on the left, left-side on the right, midline ones shared out
+// Which column each tracked site's box sits in: right-side limbs left of the figure, left-side limbs right of it (pairs level),
+// fast-changing midline sites (chest, waist, hips...) in the far-left column and slow movers (forehead, neck...) in the far right
+const FAST_MID=['chest','underbust','waist','abdomen','hips'];
 function bodyColumns(sites){
-  const y=k=>BODY_MID_Y[k]?BODY_MID_Y[k]:bodyAnchor(k)[1], l=[], r=[];
-  for(const k of [...sites].sort((a,b)=>y(a)-y(b))){
-    if(k.endsWith('R')&&!BODY_MID_Y[k]) l.push(k); else if(k.endsWith('L')&&!BODY_MID_Y[k]) r.push(k);
-  }
-  const mids=sites.filter(k=>BODY_MID_Y[k]).sort((a,b)=>y(a)-y(b));
-  mids.forEach(k=>(l.length<=r.length?l:r).push(k));
-  const by=a=>a.sort((p,q)=>y(p)-y(q));
-  return [by(l),by(r)];
+  const y=k=>BODY_MID_Y[k]?BODY_MID_Y[k]:bodyAnchor(k)[1], by=a=>a.sort((p,q)=>y(p)-y(q));
+  const side=k=>!BODY_MID_Y[k];
+  return [by(sites.filter(k=>BODY_MID_Y[k]&&FAST_MID.includes(k))),by(sites.filter(k=>side(k)&&k.endsWith('R'))),
+    by(sites.filter(k=>side(k)&&k.endsWith('L'))),by(sites.filter(k=>BODY_MID_Y[k]&&!FAST_MID.includes(k)))];
 }
 // Leader lines from each box to where on the body it's measured, redrawn whenever the layout moves
 function drawLeaders(){
@@ -2222,39 +2223,57 @@ function drawLeaders(){
   // Set each box beside its spot on the body, nudged down where boxes would overlap. A left/right pair (biceps,
   // thighs...) is placed as one row so both boxes sit level, pushed down by whichever column is fuller.
   let fr=fig.getBoundingClientRect(), sc=fr.width/200, figTop=fr.top-map.getBoundingClientRect().top, bottom=fr.height+figTop;
-  const cols=[...map.querySelectorAll('.bm-col')], next=cols.map(()=>0), rows=new Map();
+  // Columns sharing a grid track (outer ones fold in beside the figure on narrow screens) fill as one stack
+  const cols=[...map.querySelectorAll('.bm-col')], lefts=cols.map(c=>Math.round(c.getBoundingClientRect().left)), stack=lefts.map(x=>lefts.indexOf(x)), next=cols.map(()=>0), rows=new Map();
   cols.forEach(c=>c.classList.add('placed'));
   for(const lab of map.querySelectorAll('[data-msite]')){
     const k=lab.dataset.msite, inp=lab.querySelector('input'), key=BODY_MID_Y[k]?k:k.slice(0,-1);
-    const it={lab,col:cols.indexOf(lab.closest('.bm-col')),ay:(BODY_MID_Y[k]?BODY_MID_Y[k]:bodyAnchor(k)[1])*sc+figTop,off:inp.offsetTop+inp.offsetHeight/2};
+    const it={lab,col:stack[cols.indexOf(lab.closest('.bm-col'))],ay:(BODY_MID_Y[k]?BODY_MID_Y[k]:bodyAnchor(k)[1])*sc+figTop,off:inp.offsetTop+inp.offsetHeight/2};
     rows.has(key)?rows.get(key).push(it):rows.set(key,[it]);
   }
   for(const row of [...rows.values()].sort((a,b)=>a[0].ay-b[0].ay)){
     const top=Math.max(...row.map(it=>Math.max(next[it.col],it.ay-it.off)));
     for(const it of row){it.lab.style.top=top+'px'; next[it.col]=Math.max(next[it.col],top+it.lab.offsetHeight+6)}
   }
-  cols.forEach((c,i)=>{c.style.height=next[i]+'px'; bottom=Math.max(bottom,next[i])});
+  cols.forEach((c,i)=>{c.style.height=next[stack[i]]+'px'; bottom=Math.max(bottom,next[stack[i]])});
   map.style.minHeight=bottom+'px';
   const mr=map.getBoundingClientRect(); fr=fig.getBoundingClientRect();
   const focus=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('[data-msite]');
+  // An outer-column box (wide screens) routes its leader through the gutters and across the limb column in a gap between boxes
+  const inner={fast:map.querySelector('.bm-col.l'),slow:map.querySelector('.bm-col.r')};
+  const f1=v=>v.toFixed(1), used=new Set();   // each band carries one leader, so none share a run
   svg.innerHTML=[...map.querySelectorAll('[data-msite]')].map(lab=>{
-    const k=lab.dataset.msite, inp=lab.querySelector('input'), ir=inp.getBoundingClientRect(), left=!!lab.closest('.bm-col.l');
+    const k=lab.dataset.msite, inp=lab.querySelector('input'), ir=inp.getBoundingClientRect(), col=lab.closest('.bm-col'), left=col.matches('.l,.fast');
     const m=BODY_MID_Y[k]&&bodyMid(k), p=m?[left?100-m[1]:100+m[1],m[0]]:bodyAnchor(k);
     const sx=(left?ir.right:ir.left)-mr.left, sy=ir.top+ir.height/2-mr.top, ax=fr.left-mr.left+p[0]*sc, ay=fr.top-mr.top+p[1]*sc, kx=sx+(left?6:-6);
-    return `<g${lab===focus?' class="on"':''}><path d="M${sx.toFixed(1)},${sy.toFixed(1)}H${kx.toFixed(1)}L${ax.toFixed(1)},${ay.toFixed(1)}"/><circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="2.5"/></g>`;
+    let d=`M${f1(sx)},${f1(sy)}H${f1(kx)}L${f1(ax)},${f1(ay)}`;
+    const ic=inner[col.matches('.fast')?'fast':col.matches('.slow')?'slow':''], cr=ic&&ic.getBoundingClientRect();
+    if(cr&&Math.abs(cr.left-col.getBoundingClientRect().left)>2){
+      // free bands down the limb column, then the one nearest the line's straight path
+      const boxes=[...ic.querySelectorAll('[data-msite]')].map(b=>b.getBoundingClientRect()).sort((a,b)=>a.top-b.top);
+      let gaps=[], y0=-1e4; for(const b of boxes){gaps.push([y0,b.top-mr.top]); y0=b.bottom-mr.top} gaps.push([y0,1e4]);
+      const want=(sy+ay)/2; let gy=sy, gi=-1, best=1e9;
+      for(const [i,[a,b]] of gaps.entries()){if(b<a+2||(used.has(ic.className+i)&&a>-1e3&&b<1e3)) continue; const y=a<-1e3?Math.min(b-8,want):b>1e3?Math.max(a+8,want):(a+b)/2; if(Math.abs(y-want)<best){best=Math.abs(y-want); gy=y; gi=i}}
+      used.add(ic.className+gi);
+      const g1=left?(sx+cr.left-mr.left)/2:(sx+cr.right-mr.left)/2, g2=left?cr.right-mr.left+7:cr.left-mr.left-7;
+      d=`M${f1(sx)},${f1(sy)}H${f1(g1)}V${f1(gy)}H${f1(g2)}L${f1(ax)},${f1(ay)}`;
+    }
+    return `<g${lab===focus?' class="on"':''}><path d="${d}"/><circle cx="${f1(ax)}" cy="${f1(ay)}" r="2.5"/></g>`;
   }).join('');
 }
 document.addEventListener('focusin',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) drawLeaders()});
 document.addEventListener('focusout',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) setTimeout(drawLeaders)});
 window.addEventListener('resize',()=>{clearTimeout(drawLeaders.t); drawLeaders.t=setTimeout(drawLeaders,100)});
 function measureForm(d){
-  const [l,r]=bodyColumns(trackedSites());
+  const [f,l,r,sl]=bodyColumns(trackedSites());
   return `<form class="form mform" id="measureForm" autocomplete="off">
     <label class="field">Date<input type="date" name="date" id="mDate" value="${d}" required></label>
     <div class="full bodymap" id="bodyMap">
+      <div class="bm-col fast">${f.map(k=>measureField(k,d)).join('')}</div>
       <div class="bm-col l">${l.map(k=>measureField(k,d)).join('')}</div>
       <div class="bm-fig">${bodySvg()}</div>
       <div class="bm-col r">${r.map(k=>measureField(k,d)).join('')}</div>
+      <div class="bm-col slow">${sl.map(k=>measureField(k,d)).join('')}</div>
       <svg class="bm-lines" aria-hidden="true"></svg>
     </div>
     <div class="row full"><button class="btn primary" type="submit">Save measurements</button>
