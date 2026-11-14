@@ -392,12 +392,13 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .bm-fig{padding-top:8px}
 .bm-fig svg{width:100%;height:auto;display:block}
 .bm-fig .ol{stroke:var(--line);fill:none;stroke-linecap:round;stroke-linejoin:round}
+.bm-fig .tape{stroke:var(--faint);stroke-width:1.5;stroke-dasharray:4 3;fill:none}
 .bm-fig .fl{stroke:var(--sunk);fill:none;stroke-linecap:round;stroke-linejoin:round}
 .bm-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
 .bm-lines path{fill:none;stroke:var(--faint);stroke-width:1}
 .bm-lines circle{fill:var(--accent)}
 .bm-lines .on path{stroke:var(--accent);stroke-width:1.5}
-@media (max-width:520px){.bodymap{grid-template-columns:minmax(0,1fr) 140px minmax(0,1fr);gap:0 6px}.bm-col label.field{font-size:11px}.bm-col .was:not(.chg){display:none}}
+@media (max-width:520px){.bodymap{grid-template-columns:minmax(0,1fr) 140px minmax(0,1fr);gap:0 6px}.bm-col label.field{font-size:11px;letter-spacing:.02em;white-space:nowrap}.bm-col .was:not(.chg){display:none}}
 .sites{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px}
 .sites label{display:inline-flex;gap:6px;align-items:center}
 .picks label{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
@@ -717,6 +718,9 @@ function normalize(j){
   if(!s.settings.macroKinds||typeof s.settings.macroKinds!=='object') s.settings.macroKinds={};
   s.settings.macroSplit=cleanSplit(s.settings.macroSplit);
   const wa=s.settings.water||{}; s.settings.water={target:wa.target>0?+wa.target:null,unit:['ml','floz'].includes(wa.unit)?wa.unit:'',food:wa.food!==false,show:wa.show!==false};
+  // Torso height came later: lists picked by hand get it once, so it shows up without hunting for it
+  if(Array.isArray(s.settings.measureSites)&&!s.settings.torsoAdded&&!s.settings.measureSites.includes('torso')) s.settings.measureSites.push('torso');
+  s.settings.torsoAdded=true;
   const mh=s.settings.mealHints||{}; s.settings.mealHints={off:Array.isArray(mh.off)?mh.off:[],shown:Array.isArray(mh.shown)?mh.shown:[]};
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
   return s;
@@ -761,10 +765,10 @@ const weighinOn=day=>state.weighins.find(w=>w.date===day);
 /* ---------------- Body measurements ---------------- */
 // A measurement check-in: {id, date, v:{site: cm}} holding only the sites measured that day. Sites left alone
 // carry forward from their last check-in, so slow movers (neck, calves) don't need re-measuring every time.
-const SITES=[['forehead','Forehead'],['neck','Neck'],['shoulders','Shoulders'],['chest','Chest'],['underbust','Underbust'],['armL','Left bicep'],['armR','Right bicep'],['forearmL','Left forearm'],['forearmR','Right forearm'],
+const SITES=[['forehead','Forehead'],['neck','Neck'],['shoulders','Shoulders'],['torso','Torso height'],['chest','Chest'],['underbust','Underbust'],['armL','Left bicep'],['armR','Right bicep'],['forearmL','Left forearm'],['forearmR','Right forearm'],
   ['wristL','Left wrist'],['wristR','Right wrist'],['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf'],
   ['ankleL','Left ankle'],['ankleR','Right ankle']];
-const DEFAULT_SITES=['neck','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
+const DEFAULT_SITES=['neck','torso','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
 // Underbust is offered when the profile isn't set to male, and shown by default when it's female
 const siteOffered=k=>k!=='underbust'||state.settings.profile.sex!=='male';
 const defaultSites=()=>state.settings.profile.sex==='female'?[...DEFAULT_SITES,'underbust']:DEFAULT_SITES;
@@ -2175,8 +2179,8 @@ const BODY_SHAPES={
   '':{sh:46,ch:41,wa:33,hi:46,leg:20,th:36,arm:22}};
 const bodyShape=()=>BODY_SHAPES[state.settings.profile.sex]||BODY_SHAPES[''];
 // Where the tape goes: midline sites as [y, half-width], side sites as [x, y] on the person's left (the right mirrors it)
-const BODY_MID_Y={forehead:30,neck:78,shoulders:96,chest:122,underbust:142,waist:180,abdomen:200,hips:232};
-function bodyMid(k){const b=bodyShape(), hw={forehead:21,neck:11,shoulders:b.sh+1,chest:b.ch,underbust:b.ch-5,waist:b.wa-1,abdomen:b.wa+3,hips:b.hi-1}[k]; return [BODY_MID_Y[k],hw]}
+const BODY_MID_Y={forehead:30,neck:78,shoulders:96,chest:122,torso:160,underbust:142,waist:180,abdomen:200,hips:232};
+function bodyMid(k){const b=bodyShape(), hw={forehead:21,neck:11,torso:0,shoulders:b.sh+1,chest:b.ch,underbust:b.ch-5,waist:b.wa-1,abdomen:b.wa+3,hips:b.hi-1}[k]; return [BODY_MID_Y[k],hw]}
 function bodyAnchor(k){
   if(BODY_MID_Y[k]) return null;
   const b=bodyShape(), side={arm:[100+b.sh+10,140],forearm:[100+b.sh+20,222],wrist:[100+b.sh+23,262],thigh:[100+b.leg+4,290],calf:[100+b.leg,385],ankle:[100+b.leg-2,438]}[k.slice(0,-1)];
@@ -2197,6 +2201,7 @@ function bodySvg(){
     ${hair}${draw('ol',3)}<path d="${torso}" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/><rect x="91" y="62" width="18" height="28" rx="6" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/>
     <ellipse cx="100" cy="38" rx="22" ry="28" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/>
     ${draw('fl',0)}<path d="${torso}" fill="var(--sunk)"/><rect x="92.5" y="70" width="15" height="24" fill="var(--sunk)"/>${bust}
+    ${trackedSites().includes('torso')?'<path class="tape" d="M100,90V250M94,90H106M94,250H106"/>':''}
   </svg>`;
 }
 // Which column each tracked site's box sits in: right-side sites on the left, left-side on the right, midline ones shared out
