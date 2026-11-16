@@ -1,6 +1,6 @@
 // Keeps the app opening without a connection. The page itself is fetched
 // network-first, so a new version shows up as soon as the phone is online.
-const CACHE='nh-v44';
+const CACHE='nh-v45';
 const SHELL=['./','manifest.webmanifest','icons/icon-192.png','icons/icon-512.png'];
 
 self.addEventListener('install',e=>{
@@ -30,5 +30,15 @@ self.addEventListener('fetch',e=>{
     const net=fetch(r).then(res=>{if(res.ok||res.type==='opaque') k.put(r,res.clone()); return res});
     if(hit){net.catch(()=>{}); return hit}
     return net;
+  }));
+});
+
+// Water check notifications: a tap brings the open app forward, or opens it at the water panel
+self.addEventListener('notificationclick',e=>{
+  e.notification.close();
+  const url=new URL((e.notification.data&&e.notification.data.url)||'./',self.registration.scope).href;
+  e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{
+    const c=cs.find(x=>x.url.startsWith(self.registration.scope));
+    return c?c.focus():clients.openWindow(url);
   }));
 });
