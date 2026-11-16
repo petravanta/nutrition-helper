@@ -289,6 +289,15 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .wother{gap:6px;flex-wrap:nowrap}
 .wother input{width:84px}
 .wlogs{gap:6px}
+/* Pace: where the day's water should be by now, as a tick over the meter */
+.wmeter{position:relative;grid-column:1/-1}
+.wmeter .pm{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:var(--ink);border-radius:1px}
+.mic .rem.wpace b{color:var(--ink)}
+.mic .rem.wpace.behind b{color:var(--over)}
+.wslot{display:contents}
+.banner.wbehind{background:color-mix(in srgb,var(--over) 14%,var(--surface))}
+.wchecks{gap:6px}
+.wset input[type=time]{width:118px;flex:none;padding-left:8px;padding-right:6px}
 .todaylay .common,.todaylay .gap{order:1}
 .gap .gapleft{color:var(--muted)}
 .gap .gapleft b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
@@ -685,7 +694,7 @@ function defaultSettings(){return{
   macroKinds:{},   // {carbs:'ceiling',…}: macros you track as at most / at least / aim for, over the usual
   trendMicros:['sodium','cholesterol'],   // micronutrients charted on Trends, in order
   chartHide:{},   // {weight:['scale'],…}: series switched off in a chart's legend
-  water:{target:null,unit:'',food:true,show:true},   // daily water target in ml (null: the usual one), 'ml' or 'floz' (empty follows body weight), count water in logged food, show on Today
+  water:{target:null,unit:'',food:true,show:true,start:'07:00',end:'22:00',checks:[],alarm:true},   // daily water target in ml (null: the usual one), 'ml' or 'floz' (empty follows body weight), count water in logged food, show on Today
   dayParts:[...DEFAULT_DAY_PARTS],
   mealHints:{off:[],shown:[]},   // foods often logged together: sets saved or turned down, and sets already prompted for   // start hours of the parts of the day the Foods page breaks usage into
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
@@ -720,7 +729,9 @@ function normalize(j){
   }
   if(!s.settings.macroKinds||typeof s.settings.macroKinds!=='object') s.settings.macroKinds={};
   s.settings.macroSplit=cleanSplit(s.settings.macroSplit);
-  const wa=s.settings.water||{}; s.settings.water={target:wa.target>0?+wa.target:null,unit:['ml','floz'].includes(wa.unit)?wa.unit:'',food:wa.food!==false,show:wa.show!==false};
+  const wa=s.settings.water||{}; s.settings.water={target:wa.target>0?+wa.target:null,unit:['ml','floz'].includes(wa.unit)?wa.unit:'',food:wa.food!==false,show:wa.show!==false,
+    start:hm(wa.start)!=null?wa.start:'07:00',end:hm(wa.end)!=null?wa.end:'22:00',checks:cleanChecks(wa.checks),alarm:wa.alarm!==false};
+  if(hm(s.settings.water.end)<=hm(s.settings.water.start)){s.settings.water.start='07:00'; s.settings.water.end='22:00'}
   // Sites that came later: lists picked by hand get each once, so it shows up without hunting for it
   const added=new Set(s.settings.sitesAdded||(s.settings.torsoAdded?['torso']:[])); delete s.settings.torsoAdded;
   for(const k of ['torso','inseam']) if(!added.has(k)){if(Array.isArray(s.settings.measureSites)&&!s.settings.measureSites.includes(k)) s.settings.measureSites.push(k); added.add(k)}
@@ -801,6 +812,38 @@ function waterUsual(){const x=state.settings.profile.sex, all=x==='female'?2700:
 const waterTarget=()=>state.settings.water.target||waterUsual();
 const waterLogs=d=>state.water.filter(w=>w.date===d).sort((a,b)=>(a.ts||'')<(b.ts||'')?-1:1);
 function waterOn(d){const drunk=waterLogs(d).reduce((a,w)=>a+(+w.ml||0),0), food=state.settings.water.food?dayNutrients(d).water||0:0; return {drunk,food,all:drunk+food}}
+// Pace: the drinking day runs from settings.water.start to .end ('HH:MM'), and the target is due evenly across it, so nothing
+// is expected while asleep. Check times (.checks) split the target into equal steps: with three, a third is due by the first,
+// two thirds by the second and all of it by the last. Missing one sounds an alarm while the app is open (see waterTick).
+function hm(t){const m=/^(\d{1,2}):(\d{2})$/.exec(t||''); return m&&+m[1]<24&&+m[2]<60?+m[1]*60+ +m[2]:null}
+function hmStr(m){const p=n=>String(n).padStart(2,'0'); return `${p(Math.floor(m/60)%24)}:${p(Math.round(m%60))}`}   // no pad(): normalize() runs before it's defined
+function hmText(t){const d=new Date(2000,0,1,0,hm(t)); return clock(d)}
+function cleanChecks(c){return Array.isArray(c)?[...new Set(c.filter(t=>hm(t)!=null).map(t=>hmStr(hm(t))))].sort():[]}
+const minsNow=()=>{const d=new Date(); return d.getHours()*60+d.getMinutes()+d.getSeconds()/60};
+// The share of the day's target due by now: all of it for a past day, none for a future one
+function waterPace(d){
+  const t=todayKey(); if(d<t) return 1; if(d>t) return 0;
+  const W=state.settings.water, a=hm(W.start), b=hm(W.end);
+  return Math.max(0,Math.min(1,(minsNow()-a)/(b-a)));
+}
+// The latest check time that has passed today, what was due by it and how far short the day is
+function waterCheckNow(){
+  const C=state.settings.water.checks, n=minsNow(); let i=-1;
+  C.forEach((t,k)=>{if(hm(t)<=n) i=k});
+  if(i<0) return null;
+  const d=todayKey(), due=waterTarget()*(i+1)/C.length, have=waterOn(d).all;
+  return {t:C[i],i,n:C.length,due,have,short:have<due*0.99?due-have:0,key:d+' '+C[i]};
+}
+function waterNextCheck(){
+  const C=state.settings.water.checks, n=minsNow(), i=C.findIndex(t=>hm(t)>n);
+  return i<0?null:{t:C[i],i,n:C.length,due:waterTarget()*(i+1)/C.length};
+}
+const checkName=c=>`${hmText(c.t)}${c.n>1?` (${c.i+1} of ${c.n})`:''}`;
+// Evenly spaced check times over the drinking day, the last one at its end, rounded to 15 minutes
+function spreadChecks(k){
+  const W=state.settings.water, a=hm(W.start), b=hm(W.end);
+  return cleanChecks(Array.from({length:k},(_,i)=>hmStr(Math.min(b,Math.round((a+(b-a)*(i+1)/k)/15)*15))));
+}
 // A site's value on a day: its latest check-in on or before that day
 function measureAsOf(site,d,before){
   let hit=null; for(const m of measuresSorted()){if(before?m.date>=d:m.date>d) break; if(m.v&&m.v[site]!=null) hit={cm:m.v[site],date:m.date}}
@@ -1663,11 +1706,21 @@ function waterPanel(){
   if(!state.settings.water.show) return '';
   const u=waterUnit(), un=waterUnitName(u), w=waterOn(day), tgt=waterTarget(), b=budgetState('floor',toWater(w.all),toWater(tgt),un), logs=waterLogs(day);
   const when=x=>{const t=entryTime(x); return t?` · ${clock(t)}`:''};
-  return `<section class="panel stack water" aria-label="Water">
+  // Today also shows where the water should be by now, from the time gone in the drinking day
+  const W=state.settings.water, isToday=day===todayKey(), started=isToday&&minsNow()>=hm(W.start), pace=waterPace(day), due=tgt*pace;
+  const next=isToday?waterNextCheck():null, behind=due-w.all;
+  let paceTxt='';
+  if(isToday&&!started) paceTxt=`Your drinking day starts at ${hmText(W.start)}`;
+  else if(isToday&&w.all<tgt) paceTxt=(behind>tgt*0.01?`<b>${fmtWater(behind)}</b> ${un} behind pace`:`<b>On pace</b>${-behind>tgt*0.01?` · ${fmtWater(-behind)} ${un} ahead`:''}`)
+    +(pace<1?` (${fmtWater(due)} by now)`:'');
+  if(isToday&&next&&w.all<next.due) paceTxt+=`${paceTxt?' · ':''}${fmtWater(next.due)} ${un} by ${checkName(next)}`;
+  return `<section class="panel stack water" id="waterPanel" aria-label="Water">
     <div class="mic ${b.cls}"><h3 class="nm">Water</h3>
       <span class="v">${fmtWater(w.all)}<small> / ${fmtWater(tgt)} ${un}</small></span>
-      <div class="meter" role="img" aria-label="Water: ${fmtWater(w.all)} of ${fmtWater(tgt)} ${un}"><i style="width:${b.pct}%"></i></div>
-      <span class="rem">${b.rem}${w.food>0?` · ${fmtWater(w.food)} ${un} from food`:''}</span></div>
+      <div class="wmeter"><div class="meter" role="img" aria-label="Water: ${fmtWater(w.all)} of ${fmtWater(tgt)} ${un}${started?`, ${fmtWater(due)} due by now`:''}"><i style="width:${b.pct}%"></i></div>
+        ${started&&pace<1?`<b class="pm" style="left:${(pace*100).toFixed(1)}%" title="Due by now: ${fmtWater(due)} ${un}"></b>`:''}</div>
+      <span class="rem">${b.rem}${w.food>0?` · ${fmtWater(w.food)} ${un} from food`:''}</span>
+      ${paceTxt?`<span class="rem wpace${started&&behind>tgt*0.01&&w.all<tgt?' behind':''}">${paceTxt}</span>`:''}</div>
     <form id="waterForm" class="row wadd" autocomplete="off">
       ${WATER_QUICK[u].map(q=>`<button type="button" class="btn sm" data-water="${q}">+${q} ${un}</button>`).join('')}
       <span class="row wother"><input type="number" name="amt" inputmode="decimal" step="any" min="0" placeholder="Other" aria-label="Other amount of water (${un})">
@@ -1682,6 +1735,67 @@ function logWater(v){
   putRecord('water',{id:'w'+uid6(),date:day,ts:day===todayKey()?nowIso():new Date(parseDay(day).setHours(12)).toISOString(),ml});
   toast(`Added ${fmtWater(ml)} ${waterUnitName(waterUnit())} of water`);
 }
+// Behind at the latest check time: a banner on Today until caught up or dismissed
+function waterBehind(){
+  const W=state.settings.water; if(!W.alarm||!W.checks.length||day!==todayKey()) return null;
+  const c=waterCheckNow(); return c&&c.short&&lsGet('nh.waterDismissed')!==c.key?c:null;
+}
+function waterBanner(){
+  const c=waterBehind(); if(!c) return '';
+  const u=waterUnit(), un=waterUnitName(u);
+  return `<section class="banner wbehind" role="alert"><p><b>Water check, ${checkName(c)}.</b> ${fmtWater(c.due)} ${un} was due by now and you’re at ${fmtWater(c.have)}: <b>${fmtWater(c.short)} ${un} short</b>.</p>
+    <div class="row">${WATER_QUICK[u].map(q=>`<button class="btn sm primary" data-water="${q}">+${q} ${un}</button>`).join('')}<button class="btn sm ghost" data-act="waterDismiss">Dismiss</button></div></section>`;
+}
+// Alarm: runs every half minute while the app is open. When a check time passes and the day is short, it beeps, buzzes
+// (Android) and, if allowed, shows a system notification; on pace it just says so. A check is only announced once per
+// device (nh.waterFired), and not at all when the app opens more than half an hour after it: the banner covers that.
+let audioCtx=null;
+document.addEventListener('pointerdown',()=>{try{if(!audioCtx&&(window.AudioContext||window.webkitAudioContext)) audioCtx=new (window.AudioContext||window.webkitAudioContext)()}catch(_){}},{once:true,capture:true});
+function waterBeep(){
+  try{const a=audioCtx; if(!a) return; a.resume&&a.resume();
+    [0,0.35,0.7].forEach(t=>{const o=a.createOscillator(), g=a.createGain(); o.frequency.value=880; o.connect(g); g.connect(a.destination);
+      const s=a.currentTime+t; g.gain.setValueAtTime(0.0001,s); g.gain.exponentialRampToValueAtTime(0.3,s+0.02); g.gain.exponentialRampToValueAtTime(0.0001,s+0.25); o.start(s); o.stop(s+0.3)})}catch(_){}
+}
+const notifyOk=()=>'Notification' in window&&Notification.permission==='granted';
+function waterNotify(title,body){
+  if(!notifyOk()) return;
+  const o={body,tag:'nh-water',renotify:true,icon:'icons/icon-192.png',badge:'icons/icon-192.png',data:{url:'./?do=water'}};
+  (navigator.serviceWorker?navigator.serviceWorker.getRegistration():Promise.resolve(null))
+    .then(r=>r?r.showNotification(title,o):new Notification(title,o)).catch(()=>{try{new Notification(title,o)}catch(_){}});
+}
+function waterTick(){
+  const W=state.settings.water;
+  if(W.alarm&&W.checks.length){
+    const c=waterCheckNow();
+    if(c&&lsGet('nh.waterFired')!==c.key){
+      lsSet('nh.waterFired',c.key);
+      if(minsNow()-hm(c.t)<=30){
+        const un=waterUnitName(waterUnit());
+        if(c.short){waterBeep(); try{navigator.vibrate&&navigator.vibrate([300,150,300,150,300])}catch(_){}
+          waterNotify(`Water check: ${fmtWater(c.short)} ${un} short`,`${fmtWater(c.due)} ${un} was due by ${checkName(c)}. You’re at ${fmtWater(c.have)} ${un}.`)}
+        else toast(`Water check ${checkName(c)}: on pace`);
+      }
+    }
+  }
+  refreshWater();
+}
+// Keeps the pace tick and the banner current without redrawing the rest of Today (or anything being typed in)
+function refreshWater(){
+  if(tab!=='today'||day!==todayKey()||document.visibilityState!=='visible') return;
+  const slot=document.getElementById('waterSlot'); if(slot) slot.innerHTML=waterBanner();
+  const p=document.getElementById('waterPanel'); if(p&&!p.contains(document.activeElement)) p.outerHTML=waterPanel();
+}
+// Calendar file: one daily event per check time with an alarm, for reminders while the app is closed
+function waterIcs(){
+  const W=state.settings.water, un=waterUnitName(waterUnit()), tgt=waterTarget(), url=location.origin+location.pathname+'?do=water';
+  const d0=new Date(), ymd=dkey(d0).replace(/-/g,''), stamp=d0.toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'');
+  const esc2=t=>t.replace(/[\\;,]/g,m=>'\\'+m);
+  const ev=W.checks.map((t,i)=>{const c={t,i,n:W.checks.length}, due=tgt*(i+1)/c.n, title=`Water check ${c.n>1?`${i+1} of ${c.n}`:''}: ${fmtWater(due)} ${un} by now`;
+    return ['BEGIN:VEVENT',`UID:nh-water-${i+1}-of-${c.n}@nutrition-helper`,`DTSTAMP:${stamp}`,`DTSTART:${ymd}T${t.replace(':','')}00`,'DURATION:PT5M','RRULE:FREQ=DAILY',
+      `SUMMARY:${esc2(title)}`,`DESCRIPTION:${esc2(`${c.n>1?`${i+1}/${c.n} of `:''}your ${fmtWater(tgt)} ${un} should be in by now. Log water: ${url}`)}`,`URL:${url}`,'TRANSP:TRANSPARENT',
+      'BEGIN:VALARM','ACTION:DISPLAY',`DESCRIPTION:${esc2(title)}`,'TRIGGER:PT0M','END:VALARM','END:VEVENT'].join('\r\n')});
+  return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Nutrition Helper//Water checks//EN','CALSCALE:GREGORIAN','X-WR-CALNAME:Water checks',...ev,'END:VCALENDAR',''].join('\r\n');
+}
 function viewToday(){
   const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), gap=gapPicks(day), fq=freqPanel(gap);
   return `<div class="todaylay${fq?' withfreq':''}${state.settings.freqShut?' freqshut':''}"><div class="stack">
@@ -1693,6 +1807,7 @@ function viewToday(){
       ${day!==todayKey()?'<button class="btn sm" data-act="goToday">Today</button>':''}
     </div>
     ${day===todayKey()&&checkinDue()?checkinBanner():mealPrompt()}
+    <div class="wslot" id="waterSlot">${waterBanner()}</div>
     <section class="budget" aria-label="Daily budget">${MACROS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
     ${commonPanel()}
     ${gapPanel(gap)}
@@ -2555,9 +2670,34 @@ function waterSettings(){
         <span class="seg" role="group" aria-label="Water unit">${['ml','floz'].map(x=>`<button type="button" data-wateru="${x}" aria-pressed="${u===x}">${waterUnitName(x)}</button>`).join('')}</span></div>
       <label class="small" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" name="food"${W.food?' checked':''}><span>Count the water in foods and drinks you log (when the food database lists it)</span></label>
       <label class="small" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" name="show"${W.show?' checked':''}><span>Show water on Today</span></label>
+      <div class="row wset"><label class="small" style="min-width:110px" for="wStart">Drinking day</label>
+        <input type="time" id="wStart" name="start" value="${W.start}" aria-label="Drinking day starts"> <span class="small">to</span>
+        <input type="time" name="end" value="${W.end}" aria-label="Drinking day ends"></div>
+      <p class="small muted" style="margin:0">Today’s pace tick spreads the target evenly over these hours, so nothing is expected while you sleep.</p>
+      <label class="small" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" name="alarm"${W.alarm?' checked':''}><span>Alarm at check times when I’m behind</span></label>
       <div class="row"><button class="btn primary" type="submit">Save</button></div>
     </form>
+    <div class="stack" style="gap:8px"><h3 class="small" style="margin:0">Check times</h3>
+      <p class="small muted" style="margin:0">Each one checks you’re on pace: with three, a third of the target is due by the first, two thirds by the second and all of it by the last.</p>
+      ${W.checks.length?`<div class="row wchecks">${W.checks.map((t,i)=>`<button class="chip" data-rmwcheck="${t}" aria-label="Remove the ${hmText(t)} check" title="Remove">${hmText(t)} · ${fmtWater(waterTarget()*(i+1)/W.checks.length)} ${un} ×</button>`).join('')}</div>`:'<p class="small muted" style="margin:0">None yet.</p>'}
+      <div class="row wset"><input type="time" id="wCheckNew" aria-label="New check time"><button class="btn sm" data-act="waterAddCheck">Add</button>
+        <span class="small muted">or spread</span> <select id="wSpread" aria-label="How many checks">${[2,3,4,5,6,8].map(k=>`<option${k===3?' selected':''}>${k}</option>`).join('')}</select> <button class="btn sm ghost" data-act="waterSpread">evenly</button></div>
+    </div>
+    ${W.checks.length?waterReminderHelp():''}
   </section>`;
+}
+// What can actually alarm on this device, said plainly
+function waterReminderHelp(){
+  const has='Notification' in window, p=has?Notification.permission:'';
+  const ios=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  const state2=!has?(ios?'This browser can\u2019t show notifications. On iPhone, add the app to your Home Screen and open it from there to allow them.':'This browser can\u2019t show notifications.')
+    :p==='granted'?'Notifications are on for this device.':p==='denied'?'Notifications are blocked for this site in the browser\u2019s settings.':'';
+  return `<div class="stack" style="gap:8px"><h3 class="small" style="margin:0">Reminders</h3>
+    <p class="small muted" style="margin:0">The app beeps (and buzzes on Android) at a check time when you\u2019re behind, while it\u2019s open. With notifications allowed, a computer browser alerts you too while the tab is open in the background. Phones pause web apps once they\u2019re closed or out of sight, so for an alarm then, add the check times to your calendar: it can\u2019t tell if you\u2019re on pace, but it says how much should be in by then and links back here.</p>
+    ${state2?`<p class="small" style="margin:0">${state2}</p>`:''}
+    <div class="row">${has&&p==='default'?'<button class="btn sm" data-act="waterNotifyAsk">Allow notifications</button>':''}
+      <button class="btn sm" data-act="waterIcs">Add to calendar (.ics)</button>
+      <button class="btn sm ghost" data-act="waterTest">Test the alarm</button></div></div>`;
 }
 function viewSettings(){
   const t=targetsFor(todayKey()), p=state.settings.unitPrefs;
@@ -3726,7 +3866,9 @@ document.addEventListener('submit',e=>{
   if(id==='searchForm'){clearTimeout(search.timer); runSearch(); return}
   if(id==='waterForm'){const v=num(f.get('amt')); if(!v||v<=0){toast('Enter an amount.');return} logWater(v); render(); return}
   if(id==='waterSetForm'){const W=state.settings.water, v=num(f.get('target'));
-    W.target=v>0?Math.round(fromWater(v)):null; W.food=!!f.get('food'); W.show=!!f.get('show');
+    const st=String(f.get('start')||''), en=String(f.get('end')||'');
+    if(hm(st)==null||hm(en)==null||hm(en)<=hm(st)){toast('The drinking day needs to end after it starts.');return}
+    W.target=v>0?Math.round(fromWater(v)):null; W.food=!!f.get('food'); W.show=!!f.get('show'); W.start=st; W.end=en; W.alarm=!!f.get('alarm');
     if(W.target===waterUsual()) W.target=null; touchSettings(); toast('Water saved'); render(); return}
   if(id==='moveForm'){const d=f.get('date'); if(!d){toast('Pick a date.');return} doMove(d,f.get('time')||null); return}
   if(id==='portionForm'){
@@ -3909,6 +4051,15 @@ document.addEventListener('click',async e=>{
   if(d.wunit){state.settings.weightUnit=d.wunit; touchSettings(); render(); return}
   if(d.water){logWater(+d.water); render(); return}
   if(d.rmwater){dropRecord('water',d.rmwater); toast('Water removed'); render(); return}
+  if(d.rmwcheck){const W=state.settings.water; W.checks=W.checks.filter(t=>t!==d.rmwcheck); touchSettings(); render(); return}
+  if(d.act==='waterAddCheck'){const i=document.getElementById('wCheckNew'), t=i&&i.value; if(hm(t)==null){toast('Pick a time.');return}
+    const W=state.settings.water; W.checks=cleanChecks([...W.checks,t]); touchSettings(); toast(`Check at ${hmText(t)} added`); render(); return}
+  if(d.act==='waterSpread'){const k=+document.getElementById('wSpread').value||3; state.settings.water.checks=spreadChecks(k); touchSettings(); render(); return}
+  if(d.act==='waterDismiss'){const c=waterCheckNow(); if(c) lsSet('nh.waterDismissed',c.key); refreshWater(); return}
+  if(d.act==='waterNotifyAsk'){try{await Notification.requestPermission()}catch(_){} render(); return}
+  if(d.act==='waterTest'){waterBeep(); try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(_){}
+    if(notifyOk()) waterNotify('Water check (test)','This is how a missed check time will look.'); toast('That\u2019s the alarm'); return}
+  if(d.act==='waterIcs'){try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([waterIcs()],{type:'text/calendar'}));a.download='water-checks.ics';document.body.appendChild(a);a.click();a.remove();toast('Calendar file downloaded: open it to add the reminders')}catch(_){toast('Couldn\u2019t make the calendar file')} return}
   if(d.wateru){state.settings.water.unit=d.wateru; touchSettings(); render(); return}
   if(d.unitpref){const [k,u]=d.unitpref.split(':'); state.settings.unitPrefs[k]=u; touchSettings(); render(); return}
   if(d.act==='resetAsk'){pendingDelete='ALL';render();return}
@@ -3989,7 +4140,7 @@ function render(){
   refreshAdder();
 }
 
-// Home-screen shortcuts open the app with ?do=log|scan|weigh
+// Home-screen shortcuts open the app with ?do=log|scan|weigh|water
 const launch=new URLSearchParams(location.search).get('do');
 if(launch){
   history.replaceState(null,'',location.pathname+location.hash);
@@ -4000,6 +4151,9 @@ render();
 if(launch==='log') openAdder(true);
 if(launch==='scan'){openAdder(false); openSheet({type:'scan'})}
 if(launch==='weigh'){const w=document.querySelector('#weighForm [name=weight]'); if(w) w.focus()}
+if(launch==='water'){const w=document.getElementById('waterPanel'); if(w) w.scrollIntoView({block:'center'})}
+setInterval(waterTick,30000); waterTick();
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible') waterTick()});
 showDriveStatus();
 if(driveConfigured()&&Drive.on){
   GoogleToken.gis().catch(()=>{});    // ready for the next tap-to-renew
