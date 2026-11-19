@@ -19,6 +19,11 @@ self.addEventListener('fetch',e=>{
   // The barcode and label readers come from jsDelivr at pinned versions, so a cached copy never goes stale
   const lib=u.hostname==='cdn.jsdelivr.net'&&/@\d/.test(u.pathname);
   if(!own&&!fonts&&!shared&&!lib) return;   // food databases, Google sign-in and Drive go straight to the network
+  // The build stamp read by the version footer: fresh when online, so it matches the page; cached for offline
+  if(own&&u.pathname.endsWith('/version.json')){
+    e.respondWith(fetch(r).then(res=>{if(res.ok){const c=res.clone(); caches.open(CACHE).then(k=>k.put(r,c))} return res}).catch(()=>caches.match(r)));
+    return;
+  }
   if(r.mode==='navigate'){
     // Any URL in scope (including shortcut links like ?do=log) opens the cached page offline
     e.respondWith(fetch(r).then(res=>{const c=res.clone(); caches.open(CACHE).then(k=>k.put('./',c)); return res})
