@@ -476,7 +476,7 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .chart .grid{stroke:var(--line);stroke-width:1}
 .chart .tick{fill:var(--muted);font-family:var(--f-mono);font-size:10.5px}
 .chart .bar.c-a{fill:var(--c-a)}
-.chart .dot.c-a{fill:var(--c-a)} .chart .dot.c-faint{fill:var(--faint)}
+.chart .dot.c-a{fill:var(--c-a)} .chart .dot.c-faint{fill:var(--faint)} .chart .dot.c-ink{fill:var(--ink)}
 .chart .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
 .chart .ln.c-a{stroke:var(--c-a)} .chart .ln.c-b{stroke:var(--c-b)} .chart .ln.c-ink{stroke:var(--ink);stroke-width:1.5}
 .chart .ln.dash{stroke-dasharray:6 4} .chart .ln.step{stroke-dasharray:3 3}
@@ -495,7 +495,7 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .key.dots{width:7px;height:7px;border:0;border-radius:50%}
 .key.dash{border-top-style:dashed} .key.step{border-top-style:dotted}
 .key.c-a{border-color:var(--c-a)} .key.c-b{border-color:var(--c-b)} .key.c-ink{border-color:var(--ink)} .key.c-faint{border-color:var(--faint)}
-.key.bar.c-a,.key.dots.c-a{background:var(--c-a)} .key.dots.c-faint{background:var(--faint)}
+.key.bar.c-a,.key.dots.c-a{background:var(--c-a)} .key.dots.c-faint{background:var(--faint)} .key.dots.c-ink{background:var(--ink)}
 .tbl{max-height:260px;overflow:auto;margin-top:8px}
 .tbl table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
 .tbl th,.tbl td{text-align:right;padding:4px 8px;border-bottom:1px solid var(--line)}
@@ -737,7 +737,7 @@ function normalize(j){
   if(hm(s.settings.water.end)<=hm(s.settings.water.start)){s.settings.water.start='07:00'; s.settings.water.end='22:00'}
   // Sites that came later: lists picked by hand get each once, so it shows up without hunting for it
   const added=new Set(s.settings.sitesAdded||(s.settings.torsoAdded?['torso']:[])); delete s.settings.torsoAdded;
-  for(const k of ['torso','inseam','knuckles']) if(!added.has(k)){if(Array.isArray(s.settings.measureSites)&&!s.settings.measureSites.includes(k)) s.settings.measureSites.push(k); added.add(k)}
+  for(const k of ['torso','inseam','knuckles','foot']) if(!added.has(k)){if(Array.isArray(s.settings.measureSites)&&!s.settings.measureSites.includes(k)) s.settings.measureSites.push(k); added.add(k)}
   s.settings.sitesAdded=[...added];
   const mh=s.settings.mealHints||{}; s.settings.mealHints={off:Array.isArray(mh.off)?mh.off:[],shown:Array.isArray(mh.shown)?mh.shown:[]};
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
@@ -784,9 +784,9 @@ const weighinOn=day=>state.weighins.find(w=>w.date===day);
 // A measurement check-in: {id, date, v:{site: cm}} holding only the sites measured that day. Sites left alone
 // carry forward from their last check-in, so slow movers (neck, calves) don't need re-measuring every time.
 const SITES=[['forehead','Forehead'],['neck','Neck'],['shoulders','Shoulders'],['torso','Torso height'],['inseam','Inseam'],['chest','Chest'],['underbust','Underbust'],['armL','Left bicep'],['armR','Right bicep'],['forearmL','Left forearm'],['forearmR','Right forearm'],
-  ['wristL','Left wrist'],['wristR','Right wrist'],['knuckles','Around knuckles'],['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf'],
+  ['wristL','Left wrist'],['wristR','Right wrist'],['knuckles','Around knuckles'],['foot','Foot length'],['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf'],
   ['ankleL','Left ankle'],['ankleR','Right ankle']];
-const DEFAULT_SITES=['neck','torso','inseam','knuckles','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
+const DEFAULT_SITES=['neck','torso','inseam','knuckles','foot','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
 // Underbust is offered when the profile isn't set to male, and shown by default when it's female
 const siteOffered=k=>k!=='underbust'||state.settings.profile.sex!=='male';
 const defaultSites=()=>state.settings.profile.sex==='female'?[...DEFAULT_SITES,'underbust']:DEFAULT_SITES;
@@ -2325,9 +2325,10 @@ const BODY_SHAPES={
   '':{sh:46,ch:41,wa:33,hi:46,leg:20,th:36,arm:22}};
 const bodyShape=()=>BODY_SHAPES[state.settings.profile.sex]||BODY_SHAPES[''];
 // Where the tape goes: midline sites as [y, half-width], side sites as [x, y] on the person's left (the right mirrors it).
-// Knuckles is one hand, kept with the slow midline sites (far-right column) and anchored on the hand nearest that column.
-const BODY_MID_Y={forehead:30,neck:78,shoulders:96,chest:122,torso:160,underbust:142,waist:180,abdomen:200,hips:232,knuckles:278,inseam:350};
-function bodyMid(k){const b=bodyShape(), hw={forehead:21,neck:11,torso:0,inseam:0,knuckles:b.sh+22,shoulders:b.sh+1,chest:b.ch,underbust:b.ch-5,waist:b.wa-1,abdomen:b.wa+3,hips:b.hi-1}[k]; return [BODY_MID_Y[k],hw]}
+// Knuckles (one hand) and foot length (one foot, heel to toe) are kept with the slow midline sites (far-right column)
+// and anchored on the hand or foot nearest that column.
+const BODY_MID_Y={forehead:30,neck:78,shoulders:96,chest:122,torso:160,underbust:142,waist:180,abdomen:200,hips:232,knuckles:278,inseam:350,foot:452};
+function bodyMid(k){const b=bodyShape(), hw={forehead:21,neck:11,torso:0,inseam:0,knuckles:b.sh+22,foot:b.leg+4,shoulders:b.sh+1,chest:b.ch,underbust:b.ch-5,waist:b.wa-1,abdomen:b.wa+3,hips:b.hi-1}[k]; return [BODY_MID_Y[k],hw]}
 function bodyAnchor(k){
   if(BODY_MID_Y[k]) return null;
   const b=bodyShape(), side={arm:[100+b.sh+10,140],forearm:[100+b.sh+20,222],wrist:[100+b.sh+23,262],thigh:[100+b.leg+4,290],calf:[100+b.leg,385],ankle:[100+b.leg-2,438]}[k.slice(0,-1)];
@@ -2916,7 +2917,7 @@ function chartHover(el,clientX){
   for(const s of spec.series){
     const v=r[s.tipK||s.k]; const row=document.createElement('div'); row.className='tip-r';
     const key=document.createElement('i'); key.className=`key ${s.mark==='dotline'?'dots':s.mark} c-${s.color}`;
-    const b=document.createElement('b'); b.textContent=v==null?'–':`${s.mark==='delta'&&v>0?'+':''}${fmt(s.conv?s.conv(v):v,s.dp??spec.dp)} ${s.unit||spec.unit}`;
+    const b=document.createElement('b'); b.textContent=v==null?'–':`${s.mark==='delta'&&v>0?'+':''}${fmt(s.conv?s.conv(v):v,s.dp??spec.dp)} ${s.unit??spec.unit}`.trim();
     const nm=document.createElement('span'); nm.textContent=s.name;
     row.append(key,b,nm); tip.append(row);
   }
@@ -2959,9 +2960,13 @@ function measureChart(){
     m.rows.forEach((r,i)=>{const o=rows[i]||(rows[i]={date:r.date}); o['cur_'+k]=r.cur; o['read_'+k]=r.read});
   }
   if(!sites.length) return '';
-  return chartCard({id:'measures',title:`Measurements (${lUnit()})`,unit:lUnit(),dp:2,rows,weekly,h:220,toggle:sites.length>1,
+  // Hip ÷ waist, from the carried hips and waist values (higher = more curve), plotted on days either was measured, on its own right scale
+  const ratio=sites.includes('hips')&&sites.includes('waist');
+  if(ratio) for(const r of rows){r.cur_hwr=r.cur_hips&&r.cur_waist?r.cur_hips/r.cur_waist:null; r.read_hwr=r.cur_hwr!=null&&(r.read_hips!=null||r.read_waist!=null)?r.cur_hwr:null}
+  return chartCard({id:'measures',title:`Measurements (${lUnit()})`,unit:lUnit(),dp:2,rows,weekly,h:220,toggle:sites.length>1||ratio,
     tableIf:r=>sites.some(k=>r['read_'+k]!=null),
-    series:sites.map((k,i)=>({k:'read_'+k,tipK:'cur_'+k,name:siteName(k),mark:'dotline',color:MEASURE_COLORS[i%MEASURE_COLORS.length],conv:lconv}))});
+    series:[...sites.map((k,i)=>({k:'read_'+k,tipK:'cur_'+k,name:siteName(k),mark:'dotline',color:MEASURE_COLORS[i%MEASURE_COLORS.length],conv:lconv})),
+      ...(ratio?[{k:'read_hwr',tipK:'cur_hwr',name:'Hip ÷ waist ratio',mark:'dotline',color:'ink',axis:'hwr',unit:'',dp:2}]:[])]});
 }
 // Micronutrients on Trends (settings.trendMicros): each with the limit or target it has on Today, else the daily value
 function trendMicros(){
