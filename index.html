@@ -407,6 +407,10 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .mform .inbox .alt{justify-self:end;align-self:center;padding-right:10px;pointer-events:none;font-style:normal;font-family:var(--f-mono);font-size:11.5px;font-weight:400;letter-spacing:0;text-transform:none;color:var(--faint)}
 @media (min-width:521px){.mform .inbox input{padding-right:4.6em}}
 @media (max-width:520px){.mform .inbox .alt{display:none}}   /* phones: boxes too narrow to share */
+.mform .mmetric{display:flex;gap:8px;align-items:center;font-size:14px;padding-bottom:10px;cursor:pointer;white-space:nowrap}
+.mform .mmetric input{width:auto;margin:0}
+.mform.metric .inbox input{background:var(--sunk);color:var(--muted);cursor:default}
+.mform.metric .inbox .alt{color:var(--faint)}
 .bm-col label.field .was{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:0}
 .bm-fig{padding-top:8px}
 .bm-fig svg{width:100%;height:auto;display:block}
@@ -2321,8 +2325,9 @@ function viewWeight(){
 function measureField(k,d){
   const cur=measureAsOf(k,d), prev=measureAsOf(k,d,true), rec=measureOn(d), today=rec&&rec.v&&rec.v[k]!=null;
   const was=today?(prev?`was ${fmtL(prev.cm)} on ${shortDate(prev.date)}`:'first measurement'):cur?`since ${shortDate(cur.date)}`:'not yet';
-  return `<label class="field" data-msite="${k}">${esc(siteName(k))}<span class="inbox"><input type="number" name="m_${k}" inputmode="decimal" step="0.01" min="0" value="${cur?fmtL(cur.cm):''}" data-base="${prev&&today?fmtL(prev.cm):''}"><i class="alt" data-alt="${k}">${cur?altLen(fromLen(num(fmtL(cur.cm)))):''}</i></span>
-    <span class="was" data-was="${k}">${esc(was)}</span></label>`;
+  const wasCm=today&&prev?`was ${lenStr(prev.cm)} cm on ${shortDate(prev.date)}`:was;
+  return `<label class="field" data-msite="${k}">${esc(siteName(k))}<span class="inbox"><input type="number" name="m_${k}" inputmode="decimal" step="0.01" min="0" value="${cur?fmtL(cur.cm):''}" data-base="${prev&&today?fmtL(prev.cm):''}" data-cm="${cur?cur.cm:''}"><i class="alt" data-alt="${k}">${cur?altLen(cur.cm):''}</i></span>
+    <span class="was" data-was="${k}" data-w-cm="${esc(wasCm)}">${esc(was)}</span></label>`;
 }
 // Front-view figure, 200 wide by 480 tall; the person's right is on the left of the picture.
 // The figure follows the profile's sex (neutral when unset): half-widths at the shoulders, chest, waist and hips, and how far apart the legs sit.
@@ -2375,6 +2380,7 @@ function bodyColumns(sites){
 // Leader lines from each box to where on the body it's measured, redrawn whenever the layout moves
 function drawLeaders(){
   const map=document.getElementById('bodyMap'); if(!map) return;
+  if(lUnit()==='in') setMetric(document.getElementById('measureForm'),mMetric);
   const svg=map.querySelector('.bm-lines'), fig=map.querySelector('[data-bodyfig]');
   // Set each box beside its spot on the body, nudged down where boxes would overlap. A left/right pair (biceps,
   // thighs...) is placed as one row so both boxes sit level, pushed down by whichever column is fuller.
@@ -2420,10 +2426,25 @@ function drawLeaders(){
 document.addEventListener('focusin',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) drawLeaders()});
 document.addEventListener('focusout',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) setTimeout(drawLeaders)});
 window.addEventListener('resize',()=>{clearTimeout(drawLeaders.t); drawLeaders.t=setTimeout(drawLeaders,100)});
+// "In metric": shows an inches check-in in cm, read-only, so it can be checked against a cm tape or chart.
+// The form is always rendered in inches; setMetric swaps the boxes in place and back (before saving, too).
+let mMetric=lsGet('nh.mMetric')===true;
+function setMetric(form,on){
+  if(!form||form.classList.contains('metric')===on) return;
+  form.classList.toggle('metric',on);
+  const tg=form.querySelector('#mMetric'); if(tg) tg.checked=on;
+  for(const el of form.querySelectorAll('input[name^="m_"]')){
+    const k=el.name.slice(2), alt=form.querySelector(`[data-alt="${k}"]`), was=form.querySelector(`[data-was="${k}"]`);
+    if(on){el.dataset.in=el.value; const x=num(el.value); el.value=x==null?'':lenStr(el.value===el.defaultValue&&el.dataset.cm?+el.dataset.cm:fromLen(x)); el.readOnly=true; if(alt) alt.textContent=x==null?'':`${lenStr(x)} in`}
+    else{el.value=el.dataset.in??el.value; el.readOnly=false; const x=num(el.value); if(alt) alt.textContent=x==null?'':altLen(fromLen(x))}
+    if(was&&!was.classList.contains('chg')){if(on){was.dataset.wIn=was.textContent; was.textContent=was.dataset.wCm} else if(was.dataset.wIn!=null) was.textContent=was.dataset.wIn}
+  }
+}
 function measureForm(d){
   const [f,l,r,sl]=bodyColumns(trackedSites());
   return `<form class="form mform" id="measureForm" autocomplete="off">
     <label class="field">Date<input type="date" name="date" id="mDate" value="${d}" required></label>
+    ${lUnit()==='in'?`<label class="mmetric wide"><input type="checkbox" id="mMetric"${mMetric?' checked':''}><span>In metric <span class="small muted">(cm, view only)</span></span></label>`:''}
     <div class="full bodymap" id="bodyMap">
       <div class="bm-col fast">${f.map(k=>measureField(k,d)).join('')}</div>
       <div class="bm-col l">${l.map(k=>measureField(k,d)).join('')}</div>
@@ -3969,7 +3990,7 @@ document.addEventListener('submit',e=>{
     render(); return}
   if(id==='barcodeForm'){gotBarcode(f.get('code')); return}
   if(id==='weighForm'){if(saveWeighin(f)) render(); return}
-  if(id==='measureForm'){if(saveMeasures(e.target)) render(); return}
+  if(id==='measureForm'){setMetric(e.target,false); if(saveMeasures(e.target)) render(); else drawLeaders(); return}
   if(id==='targetsForm'){readTargetsForm(); touchSettings(); toast('Targets saved'); render(); return}
   if(id==='goalForm'){
     const t=num(f.get('target')), r=num(f.get('pace')), M=model(); if(!t||t<=0||r==null){toast('Enter a target weight.');return}
@@ -4140,6 +4161,7 @@ document.addEventListener('change',async e=>{
   if(t.id==='addMicro'&&t.value){readTargetsForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
     touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
   if(t.hasAttribute('data-wdate')&&t.value){t.form.querySelector('.wfields').innerHTML=weighFields(t.value); return}
+  if(t.id==='mMetric'){mMetric=t.checked; lsSet('nh.mMetric',mMetric); setMetric(t.form,mMetric); return}
   if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); drawLeaders(); return}
   if(t.dataset.site){const on=new Set(state.settings.measureSites||defaultSites()); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
     state.settings.measureSites=SITES.map(x=>x[0]).filter(k=>on.has(k)); sitesOpen=true; touchSettings(); render(); return}
