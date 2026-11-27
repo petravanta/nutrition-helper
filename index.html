@@ -402,6 +402,15 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .bm-col label.field{width:100%;max-width:150px;background:var(--surface);border-radius:6px}   /* leaders from the outer columns tuck behind limb boxes */
 .bm-col.l.placed label.field,.bm-col.fast.placed label.field{left:auto}
 .bm-col label.field input{padding-top:6px;padding-bottom:6px}
+/* the other-unit preview sits inside the box, right-aligned, over the input's spare room */
+.mform .inbox{display:grid}.mform .inbox>*{grid-area:1/1}
+.mform .inbox .alt{justify-self:end;align-self:center;padding-right:10px;pointer-events:none;font-style:normal;font-family:var(--f-mono);font-size:11.5px;font-weight:400;letter-spacing:0;text-transform:none;color:var(--faint)}
+@media (min-width:521px){.mform .inbox input{padding-right:4.6em}}
+@media (max-width:520px){.mform .inbox .alt{display:none}}   /* phones: boxes too narrow to share */
+.mform .mmetric{display:flex;gap:8px;align-items:center;font-size:14px;padding-bottom:10px;cursor:pointer;white-space:nowrap}
+.mform .mmetric input{width:auto;margin:0}
+.mform.metric .inbox input{background:var(--sunk);color:var(--muted);cursor:default}
+.mform.metric .inbox .alt{color:var(--faint)}
 .bm-col label.field .was{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:0}
 .bm-fig{padding-top:8px}
 .bm-fig svg{width:100%;height:auto;display:block}
@@ -737,7 +746,7 @@ function normalize(j){
   if(hm(s.settings.water.end)<=hm(s.settings.water.start)){s.settings.water.start='07:00'; s.settings.water.end='22:00'}
   // Sites that came later: lists picked by hand get each once, so it shows up without hunting for it
   const added=new Set(s.settings.sitesAdded||(s.settings.torsoAdded?['torso']:[])); delete s.settings.torsoAdded;
-  for(const k of ['torso','inseam','knuckles','foot']) if(!added.has(k)){if(Array.isArray(s.settings.measureSites)&&!s.settings.measureSites.includes(k)) s.settings.measureSites.push(k); added.add(k)}
+  for(const k of ['torso','inseam','knuckles','foot','armlen','sleeve']) if(!added.has(k)){if(Array.isArray(s.settings.measureSites)&&!s.settings.measureSites.includes(k)) s.settings.measureSites.push(k); added.add(k)}
   s.settings.sitesAdded=[...added];
   const mh=s.settings.mealHints||{}; s.settings.mealHints={off:Array.isArray(mh.off)?mh.off:[],shown:Array.isArray(mh.shown)?mh.shown:[]};
   for(const k of [...LISTS,'deleted']) if(Array.isArray(j[k])) s[k]=j[k].filter(Boolean);
@@ -784,9 +793,9 @@ const weighinOn=day=>state.weighins.find(w=>w.date===day);
 // A measurement check-in: {id, date, v:{site: cm}} holding only the sites measured that day. Sites left alone
 // carry forward from their last check-in, so slow movers (neck, calves) don't need re-measuring every time.
 const SITES=[['forehead','Forehead'],['neck','Neck'],['shoulders','Shoulders'],['torso','Torso height'],['inseam','Inseam'],['chest','Chest'],['underbust','Underbust'],['armL','Left bicep'],['armR','Right bicep'],['forearmL','Left forearm'],['forearmR','Right forearm'],
-  ['wristL','Left wrist'],['wristR','Right wrist'],['knuckles','Around knuckles'],['foot','Foot length'],['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf'],
+  ['wristL','Left wrist'],['wristR','Right wrist'],['knuckles','Around knuckles'],['foot','Foot length'],['armlen','Arm length'],['sleeve','Sleeve length'],['waist','Waist'],['abdomen','Abdomen (navel)'],['hips','Hips'],['thighL','Left thigh'],['thighR','Right thigh'],['calfL','Left calf'],['calfR','Right calf'],
   ['ankleL','Left ankle'],['ankleR','Right ankle']];
-const DEFAULT_SITES=['neck','torso','inseam','knuckles','foot','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
+const DEFAULT_SITES=['neck','torso','inseam','knuckles','foot','armlen','sleeve','chest','armL','armR','waist','hips','thighL','thighR','calfL','calfR'];
 // Underbust is offered when the profile isn't set to male, and shown by default when it's female
 const siteOffered=k=>k!=='underbust'||state.settings.profile.sex!=='male';
 const defaultSites=()=>state.settings.profile.sex==='female'?[...DEFAULT_SITES,'underbust']:DEFAULT_SITES;
@@ -797,6 +806,8 @@ const fromLen=v=>lUnit()==='in'?v*2.54:v;
 // Lengths take up to 2 decimals; shown with at least one (38.0, 38.5, 38.25)
 const lenStr=v=>{const t=(Math.round(v*100)/100).toFixed(2); return t.endsWith('0')?t.slice(0,-1):t};
 const fmtL=cm=>cm==null?'–':lenStr(toLen(cm));
+// The same length in the other unit, previewed inside each measurement box (cm when entering inches, inches when entering cm)
+const altLen=cm=>cm==null||!isFinite(cm)?'':lUnit()==='in'?`${(Math.round(cm*10)/10).toFixed(1)} cm`:`${(Math.round(cm/2.54*100)/100).toFixed(2)} in`;
 const measuresSorted=()=>[...state.measurements].sort((a,b)=>a.date<b.date?-1:1);
 const measureOn=d=>state.measurements.find(m=>m.date===d);
 
@@ -2314,8 +2325,9 @@ function viewWeight(){
 function measureField(k,d){
   const cur=measureAsOf(k,d), prev=measureAsOf(k,d,true), rec=measureOn(d), today=rec&&rec.v&&rec.v[k]!=null;
   const was=today?(prev?`was ${fmtL(prev.cm)} on ${shortDate(prev.date)}`:'first measurement'):cur?`since ${shortDate(cur.date)}`:'not yet';
-  return `<label class="field" data-msite="${k}">${esc(siteName(k))}<input type="number" name="m_${k}" inputmode="decimal" step="0.01" min="0" value="${cur?fmtL(cur.cm):''}" data-base="${prev&&today?fmtL(prev.cm):''}">
-    <span class="was" data-was="${k}">${esc(was)}</span></label>`;
+  const wasCm=today&&prev?`was ${lenStr(prev.cm)} cm on ${shortDate(prev.date)}`:was;
+  return `<label class="field" data-msite="${k}">${esc(siteName(k))}<span class="inbox"><input type="number" name="m_${k}" inputmode="decimal" step="0.01" min="0" value="${cur?fmtL(cur.cm):''}" data-base="${prev&&today?fmtL(prev.cm):''}" data-cm="${cur?cur.cm:''}"><i class="alt" data-alt="${k}">${cur?altLen(cur.cm):''}</i></span>
+    <span class="was" data-was="${k}" data-w-cm="${esc(wasCm)}">${esc(was)}</span></label>`;
 }
 // Front-view figure, 200 wide by 480 tall; the person's right is on the left of the picture.
 // The figure follows the profile's sex (neutral when unset): half-widths at the shoulders, chest, waist and hips, and how far apart the legs sit.
@@ -2325,10 +2337,11 @@ const BODY_SHAPES={
   '':{sh:46,ch:41,wa:33,hi:46,leg:20,th:36,arm:22}};
 const bodyShape=()=>BODY_SHAPES[state.settings.profile.sex]||BODY_SHAPES[''];
 // Where the tape goes: midline sites as [y, half-width], side sites as [x, y] on the person's left (the right mirrors it).
-// Knuckles (one hand) and foot length (one foot, heel to toe) are kept with the slow midline sites (far-right column)
-// and anchored on the hand or foot nearest that column.
-const BODY_MID_Y={forehead:30,neck:78,shoulders:96,chest:122,torso:160,underbust:142,waist:180,abdomen:200,hips:232,knuckles:278,inseam:350,foot:452};
-function bodyMid(k){const b=bodyShape(), hw={forehead:21,neck:11,torso:0,inseam:0,knuckles:b.sh+22,foot:b.leg+4,shoulders:b.sh+1,chest:b.ch,underbust:b.ch-5,waist:b.wa-1,abdomen:b.wa+3,hips:b.hi-1}[k]; return [BODY_MID_Y[k],hw]}
+// Knuckles (one hand), foot length (one foot, heel to toe), arm length (shoulder tip to wrist bone) and sleeve length
+// (base of the neck, over the shoulder, down to the wrist) are kept with the slow midline sites (far-right column)
+// and anchored on the hand, foot or arm nearest that column: arm length at the elbow, sleeve where it leaves the neck.
+const BODY_MID_Y={forehead:30,neck:78,sleeve:86,shoulders:96,chest:122,torso:160,underbust:142,waist:180,abdomen:200,hips:232,armlen:190,knuckles:278,inseam:350,foot:452};
+function bodyMid(k){const b=bodyShape(), hw={forehead:21,neck:11,torso:0,inseam:0,knuckles:b.sh+22,foot:b.leg+4,armlen:b.sh+14,sleeve:16,shoulders:b.sh+1,chest:b.ch,underbust:b.ch-5,waist:b.wa-1,abdomen:b.wa+3,hips:b.hi-1}[k]; return [BODY_MID_Y[k],hw]}
 function bodyAnchor(k){
   if(BODY_MID_Y[k]) return null;
   const b=bodyShape(), side={arm:[100+b.sh+10,140],forearm:[100+b.sh+20,222],wrist:[100+b.sh+23,262],thigh:[100+b.leg+4,290],calf:[100+b.leg,385],ankle:[100+b.leg-2,438]}[k.slice(0,-1)];
@@ -2351,6 +2364,8 @@ function bodySvg(){
     ${draw('fl',0)}<path d="${torso}" fill="var(--sunk)"/><rect x="92.5" y="70" width="15" height="24" fill="var(--sunk)"/>${bust}
     ${trackedSites().includes('torso')?'<path class="tape" d="M100,90V250M94,90H106M94,250H106"/>':''}
     ${trackedSites().includes('inseam')?'<path class="tape" d="M100,256V462M94,256H106M94,462H106"/>':''}
+    ${trackedSites().includes('armlen')?`<path class="tape" d="M${R(sh-4)},96L${R(sh+8)},142L${R(sh+14)},190L${R(sh+20)},262M${R(sh-9)},94H${R(sh+1)}M${R(sh+15)},262H${R(sh+25)}"/>`:''}
+    ${trackedSites().includes('sleeve')?(o=>`<path class="tape" d="M${R(10)},84L${R(sh-8)},88Q${R(sh+o-4)},90 ${R(sh+o-2)},104L${R(sh+8+o)},142L${R(sh+14+o-2)},190L${R(sh+20+o-4)},262M${R(sh+15+o-4)},262H${R(sh+25+o-4)}"/>`)(b.arm/2+5):''}
   </svg>`;
 }
 // Which column each tracked site's box sits in: right-side limbs left of the figure, left-side limbs right of it (pairs level),
@@ -2365,6 +2380,7 @@ function bodyColumns(sites){
 // Leader lines from each box to where on the body it's measured, redrawn whenever the layout moves
 function drawLeaders(){
   const map=document.getElementById('bodyMap'); if(!map) return;
+  if(lUnit()==='in') setMetric(document.getElementById('measureForm'),mMetric);
   const svg=map.querySelector('.bm-lines'), fig=map.querySelector('[data-bodyfig]');
   // Set each box beside its spot on the body, nudged down where boxes would overlap. A left/right pair (biceps,
   // thighs...) is placed as one row so both boxes sit level, pushed down by whichever column is fuller.
@@ -2410,10 +2426,25 @@ function drawLeaders(){
 document.addEventListener('focusin',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) drawLeaders()});
 document.addEventListener('focusout',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) setTimeout(drawLeaders)});
 window.addEventListener('resize',()=>{clearTimeout(drawLeaders.t); drawLeaders.t=setTimeout(drawLeaders,100)});
+// "In metric": shows an inches check-in in cm, read-only, so it can be checked against a cm tape or chart.
+// The form is always rendered in inches; setMetric swaps the boxes in place and back (before saving, too).
+let mMetric=lsGet('nh.mMetric')===true;
+function setMetric(form,on){
+  if(!form||form.classList.contains('metric')===on) return;
+  form.classList.toggle('metric',on);
+  const tg=form.querySelector('#mMetric'); if(tg) tg.checked=on;
+  for(const el of form.querySelectorAll('input[name^="m_"]')){
+    const k=el.name.slice(2), alt=form.querySelector(`[data-alt="${k}"]`), was=form.querySelector(`[data-was="${k}"]`);
+    if(on){el.dataset.in=el.value; const x=num(el.value); el.value=x==null?'':lenStr(el.value===el.defaultValue&&el.dataset.cm?+el.dataset.cm:fromLen(x)); el.readOnly=true; if(alt) alt.textContent=x==null?'':`${lenStr(x)} in`}
+    else{el.value=el.dataset.in??el.value; el.readOnly=false; const x=num(el.value); if(alt) alt.textContent=x==null?'':altLen(fromLen(x))}
+    if(was&&!was.classList.contains('chg')){if(on){was.dataset.wIn=was.textContent; was.textContent=was.dataset.wCm} else if(was.dataset.wIn!=null) was.textContent=was.dataset.wIn}
+  }
+}
 function measureForm(d){
   const [f,l,r,sl]=bodyColumns(trackedSites());
   return `<form class="form mform" id="measureForm" autocomplete="off">
     <label class="field">Date<input type="date" name="date" id="mDate" value="${d}" required></label>
+    ${lUnit()==='in'?`<label class="mmetric wide"><input type="checkbox" id="mMetric"${mMetric?' checked':''}><span>In metric <span class="small muted">(cm, view only)</span></span></label>`:''}
     <div class="full bodymap" id="bodyMap">
       <div class="bm-col fast">${f.map(k=>measureField(k,d)).join('')}</div>
       <div class="bm-col l">${l.map(k=>measureField(k,d)).join('')}</div>
@@ -3959,7 +3990,7 @@ document.addEventListener('submit',e=>{
     render(); return}
   if(id==='barcodeForm'){gotBarcode(f.get('code')); return}
   if(id==='weighForm'){if(saveWeighin(f)) render(); return}
-  if(id==='measureForm'){if(saveMeasures(e.target)) render(); return}
+  if(id==='measureForm'){setMetric(e.target,false); if(saveMeasures(e.target)) render(); else drawLeaders(); return}
   if(id==='targetsForm'){readTargetsForm(); touchSettings(); toast('Targets saved'); render(); return}
   if(id==='goalForm'){
     const t=num(f.get('target')), r=num(f.get('pace')), M=model(); if(!t||t<=0||r==null){toast('Enter a target weight.');return}
@@ -3981,6 +4012,7 @@ document.addEventListener('input',e=>{
   if(t.form&&t.form.classList.contains('wform')&&(t.name==='weight'||t.name==='fat')){weighWas(t); return}
   if(t.name&&t.name.startsWith('m_')&&t.form&&t.form.id==='measureForm'){
     const was=t.form.querySelector(`[data-was="${t.name.slice(2)}"]`), base=num(t.dataset.base||t.defaultValue), x=num(t.value);
+    const alt=t.form.querySelector(`[data-alt="${t.name.slice(2)}"]`); if(alt) alt.textContent=x==null?'':altLen(fromLen(x));
     if(!was) return;
     const chg=t.value!==t.defaultValue; if(was.classList.contains('chg')!==chg){was.classList.toggle('chg',chg); setTimeout(drawLeaders)} if(!chg) return;
     was.innerHTML=x==null?'cleared':base==null?'new':`from ${esc(lenStr(base))} <b>${x-base>0?'+':x-base<0?'−':'±'}${lenStr(Math.abs(x-base))}</b>`;
@@ -4129,6 +4161,7 @@ document.addEventListener('change',async e=>{
   if(t.id==='addMicro'&&t.value){readTargetsForm(); state.settings.micros.push({k:t.value,v:null,kind:MICRO_CEILING.has(t.value)?'ceiling':'floor'});
     touchSettings(); render(); const el=document.querySelector(`[name="v:${t.value}"]`); if(el) el.focus(); return}
   if(t.hasAttribute('data-wdate')&&t.value){t.form.querySelector('.wfields').innerHTML=weighFields(t.value); return}
+  if(t.id==='mMetric'){mMetric=t.checked; lsSet('nh.mMetric',mMetric); setMetric(t.form,mMetric); return}
   if(t.id==='mDate'&&t.value){document.getElementById('mFormHost').innerHTML=measureForm(t.value); drawLeaders(); return}
   if(t.dataset.site){const on=new Set(state.settings.measureSites||defaultSites()); t.checked?on.add(t.dataset.site):on.delete(t.dataset.site);
     state.settings.measureSites=SITES.map(x=>x[0]).filter(k=>on.has(k)); sitesOpen=true; touchSettings(); render(); return}
