@@ -420,7 +420,15 @@ button.nm:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 .bm-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
 .bm-lines path{fill:none;stroke:var(--faint);stroke-width:1}
 .bm-lines circle{fill:var(--accent)}
-.bm-lines .on path{stroke:var(--accent);stroke-width:1.5}
+.bm-lines .on path{stroke:var(--accent);stroke-width:2.5}
+/* The box being typed in, and where it's measured on the body, light up together; the other leaders step back */
+.bm-lines.focus g:not(.on):not(.hl){opacity:.3}
+.bm-lines .on circle{r:4;stroke:var(--surface);stroke-width:1.5}
+.bm-lines .hl ellipse,.bm-lines .hl path{fill:color-mix(in srgb,var(--accent) 22%,transparent);stroke:var(--accent);stroke-width:2.5}
+.bm-lines .hl path{fill:none;stroke-linecap:round;stroke-width:5}
+.bm-fig .tape.on{stroke:var(--accent);stroke-width:3;stroke-dasharray:none}
+.bm-col label.field:focus-within{z-index:2;color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 4px var(--accent-soft);border-radius:8px}
+.bm-col label.field:focus-within input{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);outline:none}
 @media (max-width:520px){.bodymap{grid-template-columns:minmax(0,1fr) 140px minmax(0,1fr);gap:0 6px}.bm-col label.field{font-size:11px;letter-spacing:.02em;white-space:nowrap}.bm-col .was:not(.chg){display:none}}
 .sites{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px}
 .sites label{display:inline-flex;gap:6px;align-items:center}
@@ -2406,6 +2414,14 @@ function bodyAnchor(k){
   const b=bodyShape(), side={arm:[100+b.sh+10,140],forearm:[100+b.sh+20,222],wrist:[100+b.sh+23,262],thigh:[100+b.leg+4,290],calf:[100+b.leg,385],ankle:[100+b.leg-2,438]}[k.slice(0,-1)];
   return k.slice(-1)==='L'?side:[200-side[0],side[1]];
 }
+// The tape's ring for a focused circumference site, in figure units [cx, cy, half-width]; length sites light up their dashed tape instead
+const BODY_TAPES=['torso','inseam','armlen','sleeve'];
+function bodyRing(k){
+  const b=bodyShape();
+  if(BODY_MID_Y[k]){const [y,hw]=bodyMid(k); return k==='knuckles'?[100+hw,y,9]:[100,y,hw+2]}
+  const [x,y,r]={arm:[b.sh+8,140,(b.arm+5)/2],forearm:[b.sh+17,222,(b.arm-2)/2],wrist:[b.sh+20,262,(b.arm-3)/2],thigh:[b.leg+1,290,(b.th+5)/2],calf:[b.leg+1,385,13],ankle:[b.leg,438,12]}[k.slice(0,-1)];
+  return [k.slice(-1)==='L'?100+x:100-x,y,r];
+}
 function bodySvg(){
   const b=bodyShape(), L=v=>100-v, R=v=>100+v, sh=b.sh, w=b.wa, h=b.hi, c=b.ch;
   // limbs as thick round strokes on both sides: [left-of-picture path] mirrored
@@ -2421,10 +2437,10 @@ function bodySvg(){
     ${hair}${draw('ol',3)}<path d="${torso}" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/><rect x="91" y="62" width="18" height="28" rx="6" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/>
     <ellipse cx="100" cy="38" rx="22" ry="28" fill="var(--sunk)" stroke="var(--line)" stroke-width="3"/>
     ${draw('fl',0)}<path d="${torso}" fill="var(--sunk)"/><rect x="92.5" y="70" width="15" height="24" fill="var(--sunk)"/>${bust}
-    ${trackedSites().includes('torso')?'<path class="tape" d="M100,90V250M94,90H106M94,250H106"/>':''}
-    ${trackedSites().includes('inseam')?'<path class="tape" d="M100,256V462M94,256H106M94,462H106"/>':''}
-    ${trackedSites().includes('armlen')?`<path class="tape" d="M${R(sh-4)},96L${R(sh+8)},142L${R(sh+14)},190L${R(sh+20)},262M${R(sh-9)},94H${R(sh+1)}M${R(sh+15)},262H${R(sh+25)}"/>`:''}
-    ${trackedSites().includes('sleeve')?(o=>`<path class="tape" d="M${R(10)},84L${R(sh-8)},88Q${R(sh+o-4)},90 ${R(sh+o-2)},104L${R(sh+8+o)},142L${R(sh+14+o-2)},190L${R(sh+20+o-4)},262M${R(sh+15+o-4)},262H${R(sh+25+o-4)}"/>`)(b.arm/2+5):''}
+    ${trackedSites().includes('torso')?'<path class="tape" data-tape="torso" d="M100,90V250M94,90H106M94,250H106"/>':''}
+    ${trackedSites().includes('inseam')?'<path class="tape" data-tape="inseam" d="M100,256V462M94,256H106M94,462H106"/>':''}
+    ${trackedSites().includes('armlen')?`<path class="tape" data-tape="armlen" d="M${R(sh-4)},96L${R(sh+8)},142L${R(sh+14)},190L${R(sh+20)},262M${R(sh-9)},94H${R(sh+1)}M${R(sh+15)},262H${R(sh+25)}"/>`:''}
+    ${trackedSites().includes('sleeve')?(o=>`<path class="tape" data-tape="sleeve" d="M${R(10)},84L${R(sh-8)},88Q${R(sh+o-4)},90 ${R(sh+o-2)},104L${R(sh+8+o)},142L${R(sh+14+o-2)},190L${R(sh+20+o-4)},262M${R(sh+15+o-4)},262H${R(sh+25+o-4)}"/>`)(b.arm/2+5):''}
   </svg>`;
 }
 // Which column each tracked site's box sits in: right-side limbs left of the figure, left-side limbs right of it (pairs level),
@@ -2481,6 +2497,17 @@ function drawLeaders(){
     }
     return `<g${lab===focus?' class="on"':''}><path d="${d}"/><circle cx="${f1(ax)}" cy="${f1(ay)}" r="2.5"/></g>`;
   }).join('');
+  // The focused site itself: its dashed tape turns solid accent, or a ring is drawn where the tape goes round
+  const fk=focus&&focus.dataset.msite;
+  fig.querySelectorAll('.tape').forEach(t=>t.classList.toggle('on',t.dataset.tape===fk));
+  svg.classList.toggle('focus',!!fk);
+  if(fk&&!BODY_TAPES.includes(fk)){
+    const X=v=>fr.left-mr.left+v*sc, Y=v=>fr.top-mr.top+v*sc, b=bodyShape();
+    let hl;
+    if(fk==='foot') hl=`<path d="M${f1(X(100+b.leg))},${f1(Y(436))}L${f1(X(100+b.leg+6))},${f1(Y(466))}" stroke-width="5"/>`;
+    else{const [cx,cy,rx]=bodyRing(fk); hl=`<ellipse cx="${f1(X(cx))}" cy="${f1(Y(cy))}" rx="${f1(rx*sc)}" ry="${f1(Math.max(3,rx*.22)*sc)}"/>`}
+    svg.insertAdjacentHTML('afterbegin',`<g class="hl">${hl}</g>`);
+  }
 }
 document.addEventListener('focusin',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) drawLeaders()});
 document.addEventListener('focusout',e=>{if(e.target.closest&&e.target.closest('#bodyMap')) setTimeout(drawLeaders)});
