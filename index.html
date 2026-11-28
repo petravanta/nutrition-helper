@@ -90,6 +90,17 @@ textarea{resize:vertical}
 @media (max-width:720px){.two{grid-template-columns:minmax(0,1fr)}}
 .banner{background:var(--accent-soft);border-radius:var(--r);padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .banner p{flex:1 1 260px}
+.banner.skipped,.banner.gaps{background:var(--sunk);border:1px dashed var(--line)}
+.budget.skipday{opacity:.45}
+.linkbtn{background:none;border:0;padding:0;font:inherit;color:var(--accent);text-decoration:underline;cursor:pointer}
+.skipform label{display:flex;flex-direction:column;gap:4px}
+.skipform{align-items:end}
+.skiplist{gap:6px}.skiplist h4{margin:6px 0 0;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.skiprun{justify-content:space-between;border-top:1px solid var(--line);padding-top:6px}.skiprun>span:nth-last-child(2){flex:1}
+.skipkey{width:18px;height:12px;border-radius:3px;border:1px solid var(--line);background:repeating-linear-gradient(45deg,var(--faint) 0 1.5px,transparent 1.5px 5px)}
+.chart .hatch{stroke:var(--faint);stroke-width:1.5;opacity:.55}
+.chart rect.nodata{opacity:.8}
+.chart .tick.gapl{fill:var(--muted)}
 .banner .review{flex:1 1 100%;border-top:1px solid var(--line);padding-top:10px}
 .mealhints{display:flex;flex-direction:column;gap:10px;margin-top:6px}
 .mealhint{display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap}
@@ -708,13 +719,15 @@ function defaultSettings(){return{
   chartHide:{},   // {weight:['scale'],…}: series switched off in a chart's legend
   water:{target:null,unit:'',food:true,show:true,start:'07:00',end:'22:00',checks:[],alarm:true},   // daily water target in ml (null: the usual one), 'ml' or 'floz' (empty follows body weight), count water in logged food, show on Today
   dayParts:[...DEFAULT_DAY_PARTS],
-  mealHints:{off:[],shown:[]},   // foods often logged together: sets saved or turned down, and sets already prompted for   // start hours of the parts of the day the Foods page breaks usage into
+  mealHints:{off:[],shown:[]},
+  gapsSeen:'',   // the last day with nothing logged that Today has asked about (see Missing data)   // foods often logged together: sets saved or turned down, and sets already prompted for   // start hours of the parts of the day the Foods page breaks usage into
   goal:null,   // {targetKg, ratePct (% body weight per week, negative to lose), startDate, startKg, proteinPerKg, fatPct}
   targets:[{from:'2000-01-01',...DEFAULT_TARGETS}],
   updatedAt:''
 };}
-const LISTS=['entries','weighins','foods','checkins','recipes','measurements','water'];
-function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],checkins:[],recipes:[],measurements:[],water:[],deleted:[]}}
+// skips: days marked as missing data ({id,date}), one record per day, so a range can be undone a day at a time
+const LISTS=['entries','weighins','foods','checkins','recipes','measurements','water','skips'];
+function emptyState(){return{settings:defaultSettings(),entries:[],weighins:[],foods:[],checkins:[],recipes:[],measurements:[],water:[],skips:[],deleted:[]}}
 let state=emptyState();
 
 function lsGet(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}}
@@ -786,6 +799,60 @@ function targetsFor(day){
 }
 const entriesFor=day=>state.entries.filter(e=>e.date===day).sort((a,b)=>(a.ts||'')<(b.ts||'')?-1:1);
 function totalsFor(day){const t={}; METRICS.forEach(m=>t[m.k]=0); entriesFor(day).forEach(e=>METRICS.forEach(m=>t[m.k]+=Number(e[m.k])||0)); return t}
+/* Missing data: days whose logging was lost (a failed sync, a dead phone) and that you mark as such rather than
+   fill in. They count as unknown, not as nothing eaten: left out of averages, charts, the expenditure estimate and so
+   the budgets, with anything still logged on them kept but ignored. */
+const skipDays=()=>new Set(state.skips.map(x=>x.date));
+const isSkipped=d=>state.skips.some(x=>x.date===d);
+function markSkipped(from,to){
+  if(from>to) [from,to]=[to,from];
+  const t=todayKey(); if(to>t) to=t;
+  const have=skipDays(); let n=0;
+  for(let d=from; d<=to&&n<400; d=addDays(d,1)) if(!have.has(d)){state.skips.push({id:'x'+uid6(),date:d,u:nowIso()}); n++}
+  if(n) saveLocal(); return n;
+}
+function unskip(from,to){
+  const gone=state.skips.filter(x=>x.date>=from&&x.date<=to).map(x=>x.id); if(!gone.length) return 0;
+  state.skips=state.skips.filter(x=>!gone.includes(x.id)); state.deleted.push(...gone); saveLocal(); return gone.length;
+}
+// Consecutive days as runs {from,to,n}, newest first
+function dayRuns(days){
+  const out=[]; for(const d of [...new Set(days)].sort()){const r=out[out.length-1]; if(r&&addDays(r.to,1)===d){r.to=d; r.n++} else out.push({from:d,to:d,n:1})}
+  return out.reverse();
+}
+const skipRuns=()=>dayRuns(state.skips.map(x=>x.date));
+// Days in the last `back` days, before today, not marked, with nothing or next to nothing logged (under a quarter of the
+// day's calorie target, like a coffee that synced when the rest didn't), from the first day anything was logged
+function unloggedDays(back=60){
+  if(!state.entries.length) return [];
+  const t=todayKey(), kc={}, sk=skipDays(), out=[];
+  for(const e of state.entries) kc[e.date]=(kc[e.date]||0)+(Number(e.kcal)||0);
+  const first=Object.keys(kc).sort()[0];
+  for(let d=[first,addDays(t,-back)].sort()[1]; d<t; d=addDays(d,1)) if(!sk.has(d)&&(kc[d]||0)<targetsFor(d).kcal*0.25) out.push(d);
+  return out;
+}
+const runText=r=>r.n===1?dayLabel(r.from):`${shortDate(r.from)} – ${shortDate(r.to)}${r.to.slice(0,4)!==todayKey().slice(0,4)?' '+r.to.slice(0,4):''}`;
+const runDays=r=>`${r.n} day${r.n===1?'':'s'}`;
+function skipManager(){
+  const runs=skipRuns(), un=dayRuns(unloggedDays());
+  return `<p class="small muted">For days whose logging was lost. They count as unknown, not as nothing eaten: averages, charts, your expenditure estimate and budgets leave them out. Anything still logged on them is kept but ignored until you unmark the day.</p>
+    <form class="row skipform" id="skipForm" autocomplete="off">
+      <label class="small muted">From <input type="date" name="from" value="${esc(sheet&&sheet.type==='skip'?sheet.from:addDays(todayKey(),-1))}" max="${todayKey()}" required></label>
+      <label class="small muted">To <input type="date" name="to" value="${esc(sheet&&sheet.type==='skip'?sheet.to:addDays(todayKey(),-1))}" max="${todayKey()}" required></label>
+      <button class="btn sm primary" type="submit">Mark as missing</button></form>
+    ${un.length?`<div class="stack skiplist"><h4>Little or nothing logged</h4>${un.slice(0,8).map(r=>`<div class="row skiprun"><span>${esc(runText(r))} <span class="muted small">${runDays(r)}</span></span><button class="btn sm" data-skiprun="${r.from}:${r.to}">Mark missing</button></div>`).join('')}
+      ${un.length>1?`<div class="row"><button class="btn sm ghost" data-skiprun="all">Mark all ${un.reduce((a,r)=>a+r.n,0)} days missing</button></div>`:''}</div>`:''}
+    ${runs.length?`<div class="stack skiplist"><h4>Marked as missing</h4>${runs.map(r=>`<div class="row skiprun"><span class="skipkey" aria-hidden="true"></span><span>${esc(runText(r))} <span class="muted small">${runDays(r)}</span></span><button class="btn sm ghost" data-unskip="${r.from}:${r.to}">Unmark</button></div>`).join('')}</div>`
+      :'<p class="small muted">No days marked yet.</p>'}`;
+}
+// Today asks once about recent days with little or nothing logged (last 14 days, between days that were logged)
+function gapBanner(){
+  if(building||day!==todayKey()) return '';
+  const seen=state.settings.gapsSeen||'', un=unloggedDays(14).filter(d=>d>seen); if(!un.length) return '';
+  const runs=dayRuns(un), n=un.length;
+  return `<section class="banner gaps"><p><b>${n===1?'A day':n+' days'} with little or nothing logged.</b> ${esc(runs.map(runText).join(', '))}. If the logging was lost, mark ${n===1?'it':'them'} as missing data so ${n===1?'it doesn’t':'they don’t'} count as days you ate nothing.</p>
+    <div class="row"><button class="btn sm primary" data-skipgaps="${un[0]}:${un[n-1]}">Mark as missing</button><button class="btn sm ghost" data-gapsok="${un[n-1]}">Leave as is</button></div></section>`;
+}
 const weighinsSorted=()=>[...state.weighins].sort((a,b)=>a.date<b.date?1:-1);
 const weighinOn=day=>state.weighins.find(w=>w.date===day);
 
@@ -1378,6 +1445,7 @@ function model(){
   const intake={}, scale={};
   for(const e of state.entries){const d=intake[e.date]||(intake[e.date]={n:0}); d.n++; METRICS.forEach(m=>d[m.k]=(d[m.k]||0)+(Number(e[m.k])||0))}
   for(const w of state.weighins) scale[w.date]=w;
+  const sk=skipDays();
   const all=[...Object.keys(intake),...Object.keys(scale),...state.water.map(w=>w.date)].sort(), today=todayKey();
   const days=[];
   if(all.length){
@@ -1386,14 +1454,17 @@ function model(){
       const s=scale[d];
       if(s) trend=trend==null?s.kg:trend+TREND_ALPHA*(s.kg-trend);
       if(s&&s.fat!=null) fatTrend=fatTrend==null?s.fat:fatTrend+TREND_ALPHA*(s.fat-fatTrend);
-      const row={date:d,scale:s?s.kg:null,fat:s&&s.fat!=null?s.fat:null,trend,fatTrend,intake:intake[d]||null,tdee:null};
+      // a day marked missing has no intake, whatever is still logged on it
+      const row={date:d,scale:s?s.kg:null,fat:s&&s.fat!=null?s.fat:null,trend,fatTrend,intake:sk.has(d)?null:intake[d]||null,skipped:sk.has(d),tdee:null};
       days.push(row);
       const i=days.length-1;
       if(tdee==null&&trend!=null) tdee=profileTdee(trend);
       // Today is still being logged, so it doesn't count yet
       if(d!==today&&i>=TDEE_WINDOW){
-        const start=days[i-TDEE_WINDOW].trend, win=days.slice(i-TDEE_WINDOW+1,i+1).filter(r=>r.intake);
-        if(start!=null&&trend!=null&&win.length>=TDEE_WINDOW*0.6){
+        // Average intake comes from the days that were logged; days marked missing are left out of the window rather than
+        // counted as zero, and don't count against the 60% of days it needs either (but it always needs 10 logged days)
+        const span=days.slice(i-TDEE_WINDOW+1,i+1), start=days[i-TDEE_WINDOW].trend, win=span.filter(r=>r.intake), miss=span.filter(r=>r.skipped).length;
+        if(start!=null&&trend!=null&&win.length>=Math.max(10,(TDEE_WINDOW-miss)*0.6)){
           const raw=win.reduce((a,r)=>a+r.intake.kcal,0)/win.length-(trend-start)*KCAL_PER_KG/TDEE_WINDOW;
           tdee=tdee==null?raw:tdee+TDEE_ALPHA*(raw-tdee); dataDays++;
         }
@@ -1405,6 +1476,7 @@ function model(){
   const last=days[days.length-1];
   MODEL.trendNow=last?last.trend:null;
   MODEL.tdeeNow=last&&last.tdee!=null?Math.round(last.tdee):null;
+  MODEL.skippedRecent=days.slice(-TDEE_WINDOW-1,-1).filter(r=>r.skipped).length;
   return MODEL;
 }
 // Daily calories for a pace: expenditure plus the energy of the weekly change, never below resting needs when losing
@@ -1894,7 +1966,7 @@ function waterIcs(){
   return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Nutrition Helper//Water checks//EN','CALSCALE:GREGORIAN','X-WR-CALNAME:Water checks',...ev,'END:VCALENDAR',''].join('\r\n');
 }
 function viewToday(){
-  const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), gap=gapPicks(day), fq=freqPanel(gap);
+  const t=targetsFor(day), tot=totalsFor(day), list=entriesFor(day), skip=isSkipped(day), gap=skip?[]:gapPicks(day), fq=freqPanel(gap);
   return `<div class="todaylay${fq?' withfreq':''}${state.settings.freqShut?' freqshut':''}"><div class="stack">
     <div class="daybar">
       <h2>${esc(dayLabel(day))}</h2>
@@ -1903,9 +1975,11 @@ function viewToday(){
       <button class="btn nav-btn" data-day="1" aria-label="Next day">›</button>
       ${day!==todayKey()?'<button class="btn sm" data-act="goToday">Today</button>':''}
     </div>
-    ${day===todayKey()&&checkinDue()?checkinBanner():mealPrompt()}
+    ${skip?`<section class="banner skipped"><p><b>Marked as missing data.</b> This day is left out of averages, trends and your expenditure estimate instead of counting as nothing eaten${list.length?'. What’s logged here is kept but ignored':''}.</p>
+      <div class="row"><button class="btn sm" data-unskip="${day}:${day}">Unmark</button><button class="btn sm ghost" data-act="skipMore">Missing days…</button></div></section>`
+      :gapBanner()||(day===todayKey()&&checkinDue()?checkinBanner():mealPrompt())}
     <div class="wslot" id="waterSlot">${waterBanner()}</div>
-    <section class="budget" aria-label="Daily budget">${MACROS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
+    <section class="budget${skip?' skipday':''}" aria-label="Daily budget">${MACROS.map(m=>budgetCard(m,tot[m.k],t[m.k])).join('')}</section>
     ${commonPanel()}
     ${gapPanel(gap)}
     ${microsPanel()}
@@ -1913,8 +1987,8 @@ function viewToday(){
     <section class="panel stack late">
       <div class="row" style="justify-content:space-between"><h3>Eaten ${day===todayKey()?'today':'this day'}</h3>
         <div class="row">${list.length?sortPicker():''}${list.length?'<button class="btn sm ghost" data-act="copyDay">Copy</button>':''}${list.some(e=>e.foodId&&!e.imported)&&!building?'<button class="btn sm ghost" data-act="saveRecipe">Save as recipe</button>':''}</div></div>
-      ${list.length?`${miniKey()}<div class="entries">${entriesHtml(list)}</div><p class="small muted">Tap a food to change its amount or move it to another day or time. Tap its chart for the grams.</p>`
-        :`<p class="empty">Nothing logged yet.<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button></p>`}
+      ${list.length?`${miniKey()}<div class="entries">${entriesHtml(list)}</div><p class="small muted">Tap a food to change its amount or move it to another day or time. Tap its chart for the grams.${day<todayKey()&&!skip?` Some of this day’s logging lost? <button class="linkbtn" data-skipday="${day}">Mark it as missing</button>`:''}</p>`
+        :`<p class="empty">${skip?'Nothing logged.':'Nothing logged yet.'}<br><button class="btn sm" data-act="addFood" style="margin-top:10px">Add food</button>${day<todayKey()&&!skip?` <button class="btn sm ghost" data-skipday="${day}" style="margin-top:10px">Logging lost? Mark as missing</button>`:''}</p>`}
     </section>
     ${adder?'':'<button class="btn primary fab" data-act="addFood" aria-label="Add food">+ Add food</button>'}
   </div>${fq}</div>`;
@@ -2550,7 +2624,7 @@ const paceName=r=>r===0?'Maintain':`${r<0?'Lose':'Gain'} ${Math.abs(r)}% a week`
 const perWeek=kg=>`${kg>0?'+':kg<0?'−':''}${toDisp(Math.abs(kg)).toFixed(2)} ${wUnit()}/week`;
 function goalPanel(){
   const g=state.settings.goal, M=model();
-  const src=M.dataDays>=7?`from ${M.dataDays} days of your logging and weigh-ins`:M.tdeeNow!=null?'estimated from your profile until there\u2019s more logging':'';
+  const src=M.dataDays>=7?`from ${M.dataDays} days of your logging and weigh-ins${M.skippedRecent?` (${M.skippedRecent} day${M.skippedRecent===1?'':'s'} marked missing in the last 3 weeks left out)`:''}`:M.tdeeNow!=null?'estimated from your profile until there\u2019s more logging':'';
   const exp=M.tdeeNow!=null?`<p class="small">Expenditure: <b class="mono">${fmt(M.tdeeNow)} kcal</b> a day, ${src}.</p>`
     :`<p class="small muted">To estimate your expenditure, add a weigh-in and fill in your profile in Settings, or log food and weigh in for about three weeks.</p>`;
   if(!g) return `<section class="panel stack"><h3>Goal</h3>${exp}
@@ -2849,6 +2923,7 @@ function viewSettings(){
       <p class="small">USDA search uses a shared demo key with a low hourly limit. A free personal key from <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener">fdc.nal.usda.gov</a> removes it.</p>
       <form class="row" id="usdaForm" autocomplete="off"><input type="text" name="key" value="${esc(state.settings.usdaKey)}" placeholder="USDA API key (optional)" aria-label="USDA API key" style="flex:1 1 240px"><button class="btn sm" type="submit">Save key</button></form>
     </section>
+    <section class="panel stack" id="skipPanel"><h3>Missing data</h3>${sheet&&sheet.type==='skip'?'':skipManager()}</section>
     <section class="panel stack"><h3>Import from MacroFactor</h3>
       <p class="small">In MacroFactor, export your data (More → Data Management → Data Export), then pick the <b>.xlsx</b> file here. If it\u2019s in Google Sheets, use File → Download → Microsoft Excel. The file is read on this device and only what\u2019s imported is kept.</p>
       <div class="row"><label class="btn sm" for="mfFile" style="display:inline-block">Choose export file</label><input type="file" id="mfFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></div>
@@ -2897,16 +2972,16 @@ function chartRows(){
   const wFirst=state.water.reduce((a,w)=>!a||w.date<a?w.date:a,''), wl={}, wf={}, wt=waterTarget(), wFood=state.settings.water.food;
   if(wFirst){for(const w of state.water) if(w.date>=from&&w.date<=to) wl[w.date]=(wl[w.date]||0)+(+w.ml||0);
     if(wFood) for(const e of state.entries) if(e.date>=from&&e.date<=to) wf[e.date]=(wf[e.date]||0)+entryNut(e,'water')}
-  const wOn=d=>!!wFirst&&d>=wFirst&&d<=todayKey();
+  const wOn=d=>!!wFirst&&d>=wFirst&&d<=todayKey()&&!isSkipped(d);
   const row=r=>{const tg=targetsFor(r.date); return {w_drink:wOn(r.date)?wl[r.date]||0:null,w_food:wOn(r.date)&&wFood?wf[r.date]||0:null,w_t:wOn(r.date)?wt:null,
-    ...Object.fromEntries(tm.flatMap(c=>[['u_'+c.k,r.intake?(mic[r.date]||{})[c.k]||0:null],['ul_'+c.k,c.lim]])),date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,bfTrend:r.fatTrend,tdee:r.tdee,goal:setpointOn(r.date),
+    ...Object.fromEntries(tm.flatMap(c=>[['u_'+c.k,r.intake?(mic[r.date]||{})[c.k]||0:null],['ul_'+c.k,c.lim]])),date:r.date,scale:r.scale,trend:r.trend,bf:r.fat,bfTrend:r.fatTrend,tdee:r.tdee,goal:setpointOn(r.date),skip:r.skipped?1:0,
     net:r.intake&&r.tdee!=null?r.intake.kcal-r.tdee:null,
     ...Object.fromEntries(METRICS.map(m=>[m.k,r.intake?r.intake[m.k]:null])),...Object.fromEntries(METRICS.map(m=>['t_'+m.k,tg[m.k]]))}};
   if(!weekly) return {rows:sel.map(row),weekly};
   const out=[];
   for(let i=0;i<sel.length;i+=7){
     const wk=sel.slice(i,i+7).map(row), avg=k=>{const v=wk.map(r=>r[k]).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null};
-    const o={date:wk[0].date,end:wk[wk.length-1].date}; Object.keys(wk[0]).forEach(k=>{if(k!=='date') o[k]=avg(k)}); o.trend=wk[wk.length-1].trend; o.bfTrend=wk[wk.length-1].bfTrend; o.goal=wk[wk.length-1].goal; o.tdee=wk[wk.length-1].tdee; out.push(o);
+    const o={date:wk[0].date,end:wk[wk.length-1].date}; Object.keys(wk[0]).forEach(k=>{if(k!=='date') o[k]=avg(k)}); o.trend=wk[wk.length-1].trend; o.bfTrend=wk[wk.length-1].bfTrend; o.goal=wk[wk.length-1].goal; o.tdee=wk[wk.length-1].tdee; o.skip=wk.filter(r=>r.skip).length/wk.length; out.push(o);
   }
   return {rows:out,weekly};
 }
@@ -2954,6 +3029,12 @@ function drawChart(el){
   if(spec.units&&vals.length) g+=`<text class="tick" x="${pl-6}" y="${pt-8}" text-anchor="end">${esc(spec.unit)}</text>`;
   const every=Math.max(1,Math.ceil(n/Math.max(2,Math.floor((W-pl)/70)))), lab=spec.weekly||n>120?monthYear:shortDate;
   for(let i=0;i<n;i+=every) g+=`<text class="tick" x="${x(i)}" y="${H-6}" text-anchor="middle">${esc(lab(rows[i].date))}</text>`;
+  // spec.gaps: days marked as missing data are hatched across the plot, labelled where there's room
+  if(spec.gaps){
+    const runs=[]; rows.forEach((r,i)=>{if(r.skip>=0.5){const l=runs[runs.length-1]; if(l&&l[1]===i-1) l[1]=i; else runs.push([i,i])}});
+    if(runs.length) g+=`<defs><pattern id="hatch-${spec.id}" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><line class="hatch" x1="0" y1="0" x2="0" y2="7"/></pattern></defs>`
+      +runs.map(([a,b])=>{const x0=x(a)-bw/2, w=(b-a+1)*bw; return `<rect class="nodata" x="${x0}" y="${pt}" width="${w}" height="${H-pt-pb}" fill="url(#hatch-${spec.id})"/>${w>=64?`<text class="tick gapl" x="${x0+w/2}" y="${pt+14}" text-anchor="middle">No data</text>`:''}`}).join('');
+  }
   const ys={};
   axes.forEach((ax,j)=>{
     let a=Math.min(...ax.vals), b=Math.max(...ax.vals); if(ax.ss.some(s=>s.mark==='delta')){a=Math.min(a,0); b=Math.max(b,0)} const p=(b-a)*0.08||1; const nt=band(ax.ss[0].axis)[1]-band(ax.ss[0].axis)[0]<0.5?2:4, rt=spec.zero?niceTicks(0,b,nt):niceTicks(a-p,b+p,nt); a=rt[0]; b=rt[rt.length-1];
@@ -3004,6 +3085,7 @@ function chartHover(el,clientX){
   tip.replaceChildren();
   const head=document.createElement('div'); head.className='tip-h';
   head.textContent=spec.weekly?`Week of ${shortDate(r.date)}`:dayLabel(r.date); tip.append(head);
+  if(spec.gaps&&r.skip){const m=document.createElement('div'); m.className='tip-r muted'; m.textContent=spec.weekly?`${Math.round(r.skip*7)} of 7 days marked missing, left out`:'Marked as missing data, left out'; tip.append(m)}
   for(const s of spec.series){
     const v=r[s.tipK||s.k]; const row=document.createElement('div'); row.className='tip-r';
     const key=document.createElement('i'); key.className=`key ${s.mark==='dotline'?'dots':s.mark} c-${s.color}`;
@@ -3071,7 +3153,7 @@ function microTrends(rows,weekly){
       <select id="addTrendMicro" aria-label="Chart another nutrient" style="flex:1 1 200px"><option value="">Chart another nutrient…</option>
       ${groups.map(g=>`<optgroup label="${g}">${MICRO_OPTIONS.filter(x=>x.g===g&&!on.includes(x.k)).map(x=>`<option value="${x.k}">${x.n} (${x.u})</option>`).join('')}</optgroup>`).join('')}</select></div>
     ${tm.length?'':'<p class="small muted">Pick any nutrient to see its daily trend.</p>'}</section>`;
-  return picker+tm.map(c=>chartCard({id:'micro_'+c.k,title:`${c.n} (${c.u})`,unit:c.u,dp:c.u==='mg'||c.u==='µg'||c.u==='mcg'?0:1,rows,weekly,zero:true,h:180,
+  return picker+tm.map(c=>chartCard({id:'micro_'+c.k,title:`${c.n} (${c.u})`,unit:c.u,dp:c.u==='mg'||c.u==='µg'||c.u==='mcg'?0:1,rows,weekly,zero:true,h:180,gaps:true,
     series:[{k:'u_'+c.k,name:c.n,mark:'bar',color:'b'},...(c.lim?[{k:'ul_'+c.k,name:limName[c.kind]||'Target',mark:'step',color:'ink'}]:[])],
     foot:(()=>{const v=rows.filter(r=>r['u_'+c.k]!=null); if(!v.length) return ''; const avg=v.reduce((a,r)=>a+r['u_'+c.k],0)/v.length;
       return `<p class="small muted">Average over this range: <b>${fmtNut(avg)} ${c.u}/day</b>${c.lim?`, ${fmt(100*avg/c.lim)}% of ${c.kind==='ceiling'?'your limit':c.kind==='floor'?'your minimum':'your target'} (${fmtNut(c.lim)} ${c.u})`:''}.</p>`})()})).join('');
@@ -3080,7 +3162,7 @@ function waterTrend(rows,weekly){
   if(!state.water.length) return '';
   const u=waterUnit(), un=waterUnitName(u), conv=toWater, food=state.settings.water.food;
   const v=rows.filter(r=>r.w_drink!=null), avg=v.length?v.reduce((a,r)=>a+r.w_drink+(r.w_food||0),0)/v.length:null;
-  return chartCard({id:'water',title:`Water (${un})`,unit:un,dp:0,rows,weekly,zero:true,h:200,
+  return chartCard({id:'water',title:`Water (${un})`,unit:un,dp:0,rows,weekly,zero:true,h:200,gaps:true,
     series:[{k:'w_drink',name:'Drinks',mark:'stack',color:'b',conv},...(food?[{k:'w_food',name:'From food',mark:'stack',color:'c',conv}]:[]),{k:'w_t',name:'Target',mark:'step',color:'ink',conv}],
     foot:avg==null?'':`<p class="small muted">Average over this range: <b>${fmtWater(avg)} ${un}/day</b>, ${fmt(100*avg/waterTarget())}% of your target (${fmtWater(waterTarget())} ${un}).</p>`});
 }
@@ -3099,11 +3181,11 @@ function viewTrends(){
       ...(rows.some(r=>r.bfTrend!=null)?[{k:'bf',name:'Body fat',mark:'dots',color:'d',axis:'bf',unit:'%'},{k:'bfTrend',name:'Body fat trend',mark:'line',color:'d',axis:'bf',unit:'%'}]:[]),
       ],{h:240,toggle:true,units:true})}
     ${mk('net','Calories vs expenditure','kcal',0,[{k:'kcal',name:'Calories',mark:'line',color:'a'},{k:'tdee',name:'Expenditure',mark:'line',color:'d'},
-      {k:'net',name:'Surplus / deficit',mark:'delta',color:'e',axis:'net',unit:'kcal'}],{h:260,toggle:true,units:true,bands:{left:[0.45,1],net:[0,0.38]},
+      {k:'net',name:'Surplus / deficit',mark:'delta',color:'e',axis:'net',unit:'kcal'}],{h:260,toggle:true,units:true,bands:{left:[0.45,1],net:[0,0.38]},gaps:true,
       foot:(()=>{const v=rows.filter(r=>r.net!=null); if(!v.length) return ''; const avg=v.reduce((a,r)=>a+r.net,0)/v.length;
         return `<p class="small muted">Average ${avg>0?'surplus':'deficit'} over this range: <b>${fmt(Math.abs(avg))} kcal/day</b>, about ${fmtW(Math.abs(avg)*v.length*(weekly?7:1)/KCAL_PER_KG)} ${wUnit()} ${avg>0?'gained':'lost'} in all.</p>`})()})}
     ${mk('macros','Calories & macros','g',0,[{k:'protein',name:'Protein (g)',mark:'stack',color:'b'},{k:'fat',name:'Fat (g)',mark:'stack',color:'e'},{k:'carbs',name:'Carbs (g)',mark:'stack',color:'c'},
-      {k:'kcal',name:'Calories',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240,toggle:true,units:true})}
+      {k:'kcal',name:'Calories',mark:'line',color:'a',axis:'r',unit:'kcal'},{k:'t_kcal',name:'Calorie target',mark:'step',color:'ink',axis:'r',unit:'kcal'}],{zero:true,h:240,toggle:true,units:true,gaps:true})}
     ${waterTrend(rows,weekly)}
     ${microTrends(rows,weekly)}`
     :mc?'':`<p class="empty">Log food and weigh-ins to see trends here.</p>`}
@@ -3575,11 +3657,12 @@ function sheetScan(){
     <div class="row"><label class="btn sm filebtn">Take a photo instead<input type="file" accept="image/*" capture="environment" data-photo="barcode" hidden></label></div>
     <form class="row" id="barcodeForm" autocomplete="off"><input type="text" name="code" inputmode="numeric" placeholder="Or type the barcode number" aria-label="Barcode number" style="flex:1 1 200px"><button class="btn sm" type="submit">Look up</button></form>`;
 }
+function sheetSkip(){return `<h2>Missing data</h2>${skipManager()}`}
 function renderSheet(){
   const h=document.getElementById('sheetHost');
   if(!sheet){h.innerHTML='';return}
   const body={food:sheetFood,quick:sheetQuick,editFood:sheetEditFood,scan:sheetScan,goal:sheetGoal,import:sheetImport,
-    recipe:sheetRecipe,editRecipe:sheetEditRecipe,saveRecipe:sheetSaveRecipe,move:sheetMove,copyDay:sheetCopyDay,say:sheetSay}[sheet.type]();
+    recipe:sheetRecipe,editRecipe:sheetEditRecipe,saveRecipe:sheetSaveRecipe,move:sheetMove,copyDay:sheetCopyDay,say:sheetSay,skip:sheetSkip}[sheet.type]();
   h.innerHTML=`<div class="scrim" data-close="1"></div><div class="drawer" role="dialog" aria-modal="true"><button class="x" data-close="1" aria-label="Close">×</button>${body}</div>`;
   const first=h.querySelector('#pQty,#quickAdd input,#foodForm input,#gTarget,#rQty,#saveRecipeForm input');
   if(first) first.focus({preventScroll:true});
@@ -3993,6 +4076,8 @@ document.addEventListener('submit',e=>{
     if(hm(st)==null||hm(en)==null||hm(en)<=hm(st)){toast('The drinking day needs to end after it starts.');return}
     W.target=v>0?Math.round(fromWater(v)):null; W.food=!!f.get('food'); W.show=!!f.get('show'); W.start=st; W.end=en; W.alarm=!!f.get('alarm');
     if(W.target===waterUsual()) W.target=null; touchSettings(); toast('Water saved'); render(); return}
+  if(id==='skipForm'){const a=f.get('from'), b=f.get('to'); if(!a||!b){toast('Pick both dates.');return} const n=markSkipped(a,b);
+    toast(n?`${n} day${n===1?'':'s'} marked as missing data`:'Those days were already marked'); if(sheet){sheet.from=a; sheet.to=b; renderSheet()} render(); return}
   if(id==='moveForm'){const d=f.get('date'); if(!d){toast('Pick a date.');return} doMove(d,f.get('time')||null); return}
   if(id==='portionForm'){
     const qty=num(f.get('qty')), r=withDef(sheet.food,f.get('unit')); if(!qty||qty<=0){toast('Enter an amount.');return}
@@ -4106,6 +4191,17 @@ document.addEventListener('click',async e=>{
   if(d.rmtrend){state.settings.trendMicros=state.settings.trendMicros.filter(k=>k!==d.rmtrend); touchSettings(); render(); return}
   if(d.rmmicro){readTargetsForm(); state.settings.micros=state.settings.micros.filter(c=>c.k!==d.rmmicro); touchSettings(); render(); return}
   if(d.day){day=addDays(day,+d.day);render();return}
+  if(d.skipday){markSkipped(d.skipday,d.skipday); toast(`${dayLabel(d.skipday)} marked as missing data`); render(); return}
+  if(d.skiprun||d.skipgaps){
+    const v=d.skiprun||d.skipgaps; let n=0;
+    if(v==='all') for(const r of dayRuns(unloggedDays())) n+=markSkipped(r.from,r.to);
+    else if(d.skipgaps) unloggedDays(14).filter(x=>x>(state.settings.gapsSeen||'')).forEach(x=>n+=markSkipped(x,x));
+    else {const [a,b]=v.split(':'); n=markSkipped(a,b)}
+    if(d.skipgaps){state.settings.gapsSeen=v.split(':')[1]; touchSettings()}
+    toast(`${n} day${n===1?'':'s'} marked as missing data`); if(sheet) renderSheet(); render(); return}
+  if(d.unskip){const [a,b]=d.unskip.split(':'), n=unskip(a,b); toast(`${n===1?dayLabel(a):n+' days'} back in your averages`); if(sheet) renderSheet(); render(); return}
+  if(d.gapsok){state.settings.gapsSeen=d.gapsok; touchSettings(); render(); return}
+  if(d.act==='skipMore'){openSheet({type:'skip',from:day,to:day}); return}
   if(d.act==='goToday'){day=todayKey();render();return}
   if(d.act==='freqToggle'){state.settings.freqShut=!state.settings.freqShut; touchSettings(); render(); return}
   if(d.addday){day=addDays(day,+d.addday); adderWhenChanged(); return}
