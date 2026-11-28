@@ -1542,6 +1542,9 @@ async function dfetch(path,opt={}){
 function driveKind(e){
   if(!e||e.code==='expired'||e.type==='popup_closed'||e.error==='access_denied') return null;
   if(e.code==='offline') return 'offline';
+  if(e instanceof Error) return 'bug';                  // the app itself tripped, not Drive: say so instead of blaming Google
+  if(e.type) return e.type==='popup_failed_to_open'?'popup':'signin';   // Google's sign-in window (popup_closed is handled above)
+  if(e.error) return 'signin';                          // Google's sign-in answered with an error code
   const s=e.status, r=e.reason||'';
   if(/storageQuotaExceeded/.test(r)) return 'full';
   if(s===429||/rateLimitExceeded|quotaExceeded|dailyLimitExceeded|RESOURCE_EXHAUSTED/i.test(r)) return 'busy';
@@ -1557,9 +1560,15 @@ const DRIVE_TEXT={
   full:'Your Google Drive is full \u00b7 free up space and the app saves again',
   denied:'Google Drive didn\u2019t allow this \u00b7 disconnect and connect Google Drive again, and tick the Drive box',
   missing:'Couldn\u2019t find this app\u2019s file in Google Drive \u00b7 trying again',
-  http:'Google Drive didn\u2019t accept the change \u00b7 trying again'};
+  http:'Google Drive didn\u2019t accept the change \u00b7 trying again',
+  popup:'Google\u2019s sign-in window was blocked \u00b7 allow pop-ups for this site and tap Connect again',
+  signin:'Google sign-in didn\u2019t finish \u00b7 tap Connect Google Drive to try again',
+  bug:'The app hit a problem while syncing \u00b7 your data is safe in this browser'};
 function driveExplain(e,retryIn){
   const k=driveKind(e); if(!k) return null;
+  if(k==='bug'||k==='signin') console.error('Drive sync:',e);   // details for whoever looks at the console
+  const why=k==='bug'?(e.message||String(e)):k==='signin'?(e.error||e.type||''):'';
+  if(why) return {kind:k,status:0,reason:why,message:e.message||'',retrying:false,retryAt:null,at:new Date(),text:`${DRIVE_TEXT[k]} (${why})`};
   return {kind:k,status:e.status||0,reason:e.reason||'',message:e.msg||'',retrying:retryIn>0,retryAt:retryIn>0?new Date(Date.now()+retryIn):null,at:new Date(),
     text:DRIVE_TEXT[k]+(e.status?` (${e.status}${e.reason?' '+e.reason:''})`:'')};
 }
@@ -1604,6 +1613,8 @@ async function driveFind(){
   if(Drive.fileId) await driveTidy(Drive.fileId);
   return Drive.fileId;
 }
+// What goes to Drive and into a backup file: the whole state, stamped with the app and when it was saved
+const snapshot=()=>({app:'nutrition-helper',v:1,saved:nowIso(),...state});
 async function driveRead(){const id=await driveFind(); return id?(await dfetch(`/drive/v3/files/${id}?alt=media`)).json():null}
 async function driveWrite(){
   const body=JSON.stringify(snapshot());
